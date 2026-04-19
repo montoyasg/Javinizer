@@ -5,26 +5,40 @@ function Get-JavdbData {
         [String]$Url,
 
         [Parameter(Position = 1)]
-        [String]$Session
+        [String]$Session,
+
+        [Parameter()]
+        [String]$CfClearance
     )
 
     process {
         $movieDataObject = @()
 
-        if ($Session) {
+        $loginSession = $null
+        if ($Session -or $CfClearance) {
             $loginSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-            $cookie = New-Object System.Net.Cookie
-            $cookie.Name = '_jdb_session'
-            $cookie.Value = $Session
-            $cookie.Domain = 'javdb.com'
-            $loginSession.Cookies.Add($cookie)
+            if ($Session) {
+                $cookie = New-Object System.Net.Cookie
+                $cookie.Name = '_jdb_session'
+                $cookie.Value = $Session
+                $cookie.Domain = 'javdb.com'
+                $loginSession.Cookies.Add($cookie)
+            }
+            if ($CfClearance) {
+                $cookie = New-Object System.Net.Cookie
+                $cookie.Name = 'cf_clearance'
+                $cookie.Value = $CfClearance
+                $cookie.Domain = 'javdb.com'
+                $loginSession.Cookies.Add($cookie)
+            }
         }
 
         try {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] Performing [GET] on URL [$Url]"
-            $webRequest = Invoke-WebRequest -Uri $Url -Method Get -WebSession $loginSession -Verbose:$false
+            $webRequest = Invoke-JavdbRequest -Uri $Url -WebSession $loginSession
         } catch {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Error [GET] on URL [$Url]: $PSItem" -Action 'Continue'
+            return
         }
 
         $movieDataObject = [PSCustomObject]@{
@@ -38,7 +52,7 @@ function Get-JavdbData {
             Director      = Get-JavdbDirector -WebRequest $webRequest
             Maker         = Get-JavdbMaker -WebRequest $webRequest
             Series        = Get-JavdbSeries -WebRequest $webRequest
-            Actress       = Get-JavdbActress -WebRequest $webRequest
+            Actress       = Get-JavdbActress -WebRequest $webRequest -WebSession $loginSession
             Genre         = Get-JavdbGenre -WebRequest $webRequest
             CoverUrl      = Get-JavdbCoverUrl -WebRequest $webRequest
             ScreenshotUrl = Get-JavdbScreenshotUrl -WebRequest $webRequest

@@ -191,12 +191,15 @@ function Get-JavdbGenre {
 function Get-JavdbActress {
     param (
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
-        [Object]$Webrequest
+        [Object]$Webrequest,
+
+        [Parameter(Position = 1)]
+        [Microsoft.PowerShell.Commands.WebRequestSession]$WebSession
     )
 
     process {
+        $actressObject = @()
         try {
-            $actressObject = @()
             $actress = (($Webrequest.Content | Select-String -Pattern '<a href="\/actors\/(.*)">(.*)<\/a>').Matches.Groups[0].Value) -split '<\/a>'
             ($actress | Select-String -Pattern '\/actors\/(.*)">(.*)' -AllMatches).Matches | ForEach-Object { if ($_ -ne '') {
                     $actressObject += [PSCustomObject]@{
@@ -206,24 +209,27 @@ function Get-JavdbActress {
                     }
                 }
             }
-
-            $index = 0
-            foreach ($actress in $actressObject) {
-                $thumbUrl = $null
-                try {
-                    $thumbUrl = ((Invoke-WebRequest -Uri "https://javdb.com/actors/$($actress.Id)" -Verbose:$false).Content | Select-String -Pattern '<span class="avatar" style="background-image: url\((.*)\)"><\/span>').Matches.Groups[1].Value
-                } catch {
-                    # Do nothing
-                }
-
-                if ($thumbUrl) {
-                    $actressObject[$index].ThumbUrl = $thumbUrl
-                }
-
-                $index++
-            }
         } catch {
             return
+        }
+
+        $index = 0
+        foreach ($actress in $actressObject) {
+            $thumbUrl = $null
+            try {
+                $actressUrl = "https://javdb.com/actors/$($actress.Id)"
+                $resp = Invoke-JavdbRequest -Uri $actressUrl -WebSession $WebSession
+                $thumbUrl = ($resp.Content | Select-String -Pattern '<span class="avatar" style="background-image: url\((.*)\)"><\/span>').Matches.Groups[1].Value
+            } catch {
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] Could not fetch thumb for actress [$($actress.Id)]: $PSItem"
+            }
+
+            if ($thumbUrl) {
+                $actressObject[$index].ThumbUrl = $thumbUrl
+            }
+
+            $index++
+            Start-Sleep -Milliseconds (Get-Random -Minimum 400 -Maximum 900)
         }
 
         $movieActressObject = @()

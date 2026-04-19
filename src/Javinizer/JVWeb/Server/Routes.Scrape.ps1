@@ -23,9 +23,10 @@ Add-PodeRoute -Method Post -Path '/api/scrape' -ScriptBlock {
             return
         }
 
-        $data = Invoke-JVScrapeCached -Id $id -Cache $cache
+        $data = Invoke-JVScrapeCached -Id $id -Cache $cache -Settings $settings
         if (-not $data) {
-            Write-PodeJsonResponse -Value @{ error = "No R18.dev match for ID [$id]" } -StatusCode 404
+            $msg = Get-JVScrapeNotFoundMessage -Id $id -Settings $settings
+            Write-PodeJsonResponse -Value @{ error = $msg } -StatusCode 404
             return
         }
 
@@ -46,20 +47,22 @@ Add-PodeRoute -Method Post -Path '/api/manual-search' -ScriptBlock {
         $query = $body.query
 
         if ([string]::IsNullOrWhiteSpace($query)) {
-            Write-PodeJsonResponse -Value @{ error = 'query is required (ID or r18.dev URL)' } -StatusCode 400
+            Write-PodeJsonResponse -Value @{ error = 'query is required (ID or URL)' } -StatusCode 400
             return
         }
 
+        $settings = Get-PodeState -Name 'settings'
         $cache = Get-PodeState -Name 'scrapeCache'
 
         if ($query -match '^https?://') {
-            $data = Invoke-JVScrapeCached -Id '' -Url $query -Cache $cache
+            $data = Invoke-JVScrapeCached -Id '' -Url $query -Cache $cache -Settings $settings
         } else {
-            $data = Invoke-JVScrapeCached -Id $query -Cache $cache
+            $data = Invoke-JVScrapeCached -Id $query -Cache $cache -Settings $settings
         }
 
         if (-not $data) {
-            Write-PodeJsonResponse -Value @{ error = "No R18.dev match for [$query]" } -StatusCode 404
+            $msg = Get-JVScrapeNotFoundMessage -Id $query -Settings $settings
+            Write-PodeJsonResponse -Value @{ error = $msg } -StatusCode 404
             return
         }
 
@@ -95,9 +98,10 @@ Add-PodeRoute -Method Post -Path '/api/screens' -ScriptBlock {
             return
         }
 
-        $data = Invoke-JVScrapeCached -Id $id -Cache $cache
+        $data = Invoke-JVScrapeCached -Id $id -Cache $cache -Settings $settings
         if (-not $data) {
-            Write-PodeJsonResponse -Value @{ error = "No R18.dev match" } -StatusCode 404
+            $msg = Get-JVScrapeNotFoundMessage -Id $id -Settings $settings
+            Write-PodeJsonResponse -Value @{ error = $msg } -StatusCode 404
             return
         }
 
@@ -107,3 +111,22 @@ Add-PodeRoute -Method Post -Path '/api/screens' -ScriptBlock {
         Write-PodeJsonResponse -Value @{ error = "$($PSItem.Exception.Message)" } -StatusCode 500
     }
 }
+
+Add-PodeRoute -Method Post -Path '/api/javdb/session/refresh' -ScriptBlock {
+    try {
+        $info = Get-JavdbSession -Force -PassThru
+        if (-not $info -or -not $info.Session) {
+            Write-PodeJsonResponse -Value @{ error = 'Session capture returned no cookie.' } -StatusCode 500
+            return
+        }
+        Write-PodeJsonResponse -Value @{
+            status     = 'ok'
+            capturedAt = $info.CapturedAt
+            expiresAt  = $info.ExpiresAt
+        }
+    } catch {
+        Write-PodeHost "javdb session refresh error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red
+        Write-PodeJsonResponse -Value @{ error = "$($PSItem.Exception.Message)" } -StatusCode 500
+    }
+}
+

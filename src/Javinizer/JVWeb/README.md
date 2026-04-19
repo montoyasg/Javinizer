@@ -2,14 +2,25 @@
 
 A lightweight, portable replacement for the old PowerShell Universal dashboard. Pure PowerShell backend (via [Pode](https://badgerati.github.io/Pode/)) + vanilla HTML/CSS/JS frontend. Cross-platform (Windows / macOS / Linux). No bundled binaries.
 
-Scope of v1: **Sort page only**, R18.dev scraper only. NFO + cover crop + thumbs are retained via the existing `Set-JVMovie` pipeline — nothing in the core scrape/sort stack is re-implemented here.
+Scope of v1: **Sort page only**. Primary scraper is R18.dev; **javdb.com is used as a fallback** when R18.dev has no match (gated by `web.scrape.javdb.fallback` and a cached login session). NFO + cover crop + thumbs are retained via the existing `Set-JVMovie` pipeline — nothing in the core scrape/sort stack is re-implemented here.
 
 ## Requirements
 
-- **PowerShell 7.x** (any version — not tied to 7.3.x)
+- **PowerShell 7.2+** (javdb session capture uses Playwright for .NET which targets .NET 6+)
 - **Pode** PowerShell module (`Install-Module Pode -Scope CurrentUser`)
 - **Javinizer** module loaded or available for import
 - **Network on first launch** — to auto-download SixLabors.ImageSharp (~1 MB, used for cropped posters). Cached afterwards at `~/.javinizer/assemblies/`.
+- **Microsoft.Playwright (optional, for javdb fallback)** — javdb is behind Cloudflare; the module auto-captures the `_jdb_session` cookie by launching Chromium and waiting for you to log in once. Install:
+
+  ```bash
+  dotnet new console -o ~/.javinizer/playwright
+  cd ~/.javinizer/playwright
+  dotnet add package Microsoft.Playwright
+  dotnet build
+  pwsh bin/Debug/net*/playwright.ps1 install chromium
+  ```
+
+  Then ensure `Microsoft.Playwright.dll` is discoverable (e.g. `Add-Type -Path` in a profile or dot-source script before importing Javinizer). Set `web.scrape.javdb.fallback = false` in `jvSettings.json` to disable the fallback path entirely and skip this dependency.
 
 ## Run
 
@@ -79,12 +90,16 @@ Same shape but paginated + searchable.
 ### `POST /api/scrape`
 
 Body: `{ "path": "/full/path/to/video.mp4" }`
-Extracts ID from filename, scrapes R18.dev, returns full metadata object.
+Extracts ID from filename, scrapes R18.dev, falls back to javdb if enabled and R18.dev has no match, returns full metadata object (the `Source` field identifies which scraper won).
 
 ### `POST /api/manual-search`
 
-Body: `{ "query": "CAWD-125" }` or `{ "query": "https://r18.dev/videos/..." }`
-Bypasses filename parsing.
+Body: `{ "query": "CAWD-125" }`, `{ "query": "https://r18.dev/videos/..." }`, or `{ "query": "https://javdb.com/v/..." }`
+Bypasses filename parsing. Direct URLs are routed by domain.
+
+### `POST /api/javdb/session/refresh`
+
+No body. Launches Chromium via Playwright and waits for the user to log in to javdb. Captures `_jdb_session` (and `cf_clearance` if present), persists to `~/.config/Javinizer/javdb-session.json` (macOS/Linux) or `%LOCALAPPDATA%\Javinizer\javdb-session.json` (Windows), and returns `{ status, capturedAt, expiresAt }`. The cookie itself is never returned to the browser.
 
 ### `POST /api/preview`
 
@@ -128,9 +143,10 @@ Overrides are request-scoped — they don't mutate `jvSettings.json`. Edit that 
 
 ## Known limitations (v1)
 
-- Single scraper (R18.dev). No aggregation across DMM/JavLibrary/etc.
+- Two scrapers (R18.dev primary, javdb fallback). No aggregation across DMM/JavLibrary/etc.
 - No settings-editor UI. Edit `jvSettings.json` directly.
 - No Find tab, no trailer download UI, no metadata translation.
+- javdb fallback requires Playwright + a manual one-time login. Session is cached for 30 days per the captured cookie.
 
 ## UI workflow
 

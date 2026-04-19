@@ -86,6 +86,8 @@
         'Get-JavbusUrl',
         'Get-JavdbUrl',
         'Get-JavdbData',
+        'Get-JavdbSession',
+        'Clear-JavdbSession',
         'Get-TokyoHotUrl',
         'Get-TokyoHotData',
         'Get-JavlibraryData',

@@ -575,6 +575,23 @@
         loadFiles();
     }
 
+    async function refreshJavdbSession() {
+        const btn = qs('#btn-javdb-refresh');
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Opening Chromium — log in…';
+        try {
+            const res = await api('/api/javdb/session/refresh', { method: 'POST' });
+            const exp = res.expiresAt ? new Date(res.expiresAt).toLocaleDateString() : 'unknown';
+            toast(`javdb session captured (expires ${exp})`, 'ok');
+        } catch (e) {
+            toast('javdb session refresh failed: ' + e.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+        }
+    }
+
     async function manualSearch() {
         const q = qs('#manual-query').value.trim();
         if (!q) return;
@@ -780,6 +797,8 @@
 
         qs('#btn-preview-tree').addEventListener('click', runTreePreview);
         qs('#btn-sort-all').addEventListener('click', sortAllFromTree);
+
+        qs('#btn-javdb-refresh').addEventListener('click', refreshJavdbSession);
 
         qs('#btn-screens').addEventListener('click', () => {
             const d = state.scrapedData;

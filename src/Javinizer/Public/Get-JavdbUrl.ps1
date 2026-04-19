@@ -8,32 +8,40 @@ function Get-JavdbUrl {
         [String]$Session,
 
         [Parameter()]
+        [String]$CfClearance,
+
+        [Parameter()]
         [Switch]$AllResults
     )
 
     process {
         $searchUrl = "https://javdb.com/search?q=$Id&f=all"
 
-        if ($Session) {
+        $loginSession = $null
+        if ($Session -or $CfClearance) {
             $loginSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-            $cookie = New-Object System.Net.Cookie
-            $cookie.Name = '_jdb_session'
-            $cookie.Value = $Session
-            $cookie.Domain = 'javdb.com'
-            $loginSession.Cookies.Add($cookie)
+            if ($Session) {
+                $cookie = New-Object System.Net.Cookie
+                $cookie.Name = '_jdb_session'
+                $cookie.Value = $Session
+                $cookie.Domain = 'javdb.com'
+                $loginSession.Cookies.Add($cookie)
+            }
+            if ($CfClearance) {
+                $cookie = New-Object System.Net.Cookie
+                $cookie.Name = 'cf_clearance'
+                $cookie.Value = $CfClearance
+                $cookie.Domain = 'javdb.com'
+                $loginSession.Cookies.Add($cookie)
+            }
         }
 
         try {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Performing [GET] on URL [$searchUrl]"
-            $webRequest = Invoke-WebRequest -Uri $searchUrl -Method Get -WebSession $loginSession -Verbose:$false
+            $webRequest = Invoke-JavdbRequest -Uri $searchUrl -WebSession $loginSession
         } catch {
-            try {
-                # Add a retry to the URL search due to 500 errors occurring randomly when scraping Javdb
-                Start-Sleep -Seconds 3
-                $webRequest = Invoke-WebRequest -Uri $searchUrl -Method Get -WebSession $loginSession -Verbose:$false
-            } catch {
-                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Error occured on [GET] on URL [$searchUrl]: $PSItem" -Action 'Continue'
-            }
+            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Error on [GET] [$searchUrl]: $PSItem" -Action 'Continue'
+            return
         }
 
         $results = $webRequest.Links | Where-Object { $null -ne $_.title }

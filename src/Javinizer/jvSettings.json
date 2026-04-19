@@ -214,6 +214,8 @@
   "javlibrary.cookie.session": "",
   "javlibrary.cookie.userid": "",
   "javdb.cookie.session": "",
+  "javdb.browser.useragent": "",
+  "web.scrape.javdb.fallback": true,
   "proxy.enabled": false,
   "proxy.host": "",
   "proxy.username": "",
