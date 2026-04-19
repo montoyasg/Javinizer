@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Javinizer Sort</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-inner">
+            <span class="app-title">Javinizer Sort</span>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <section class="column left">
+            <div class="card" id="card-nav">
+                <div class="card-title" id="nav-header">(0 of 0) —</div>
+                <div class="nav-controls">
+                    <select id="file-dropdown" disabled></select>
+                    <div class="nav-buttons">
+                        <button id="btn-first" class="nav-btn" title="First">&#9198;</button>
+                        <button id="btn-prev" class="nav-btn" title="Previous">&#8592;</button>
+                        <button id="btn-next" class="nav-btn" title="Next">&#8594;</button>
+                        <button id="btn-last" class="nav-btn" title="Last">&#9197;</button>
+                    </div>
+                </div>
+                <div class="cover-wrap">
+                    <img id="cover-img" class="cover-img" alt="cover" />
+                    <div id="cover-placeholder" class="cover-placeholder">Select a file to preview</div>
+                </div>
+                <div id="destination-display" class="destination-display" hidden>
+                    <div class="dest-source" id="dest-source"></div>
+                    <div class="dest-arrow">&rarr;</div>
+                    <div class="dest-target" id="dest-target">—</div>
+                </div>
+                <button id="btn-screens" class="full-btn"><span class="emoji">&#128444;</span> SCREENS</button>
+            </div>
+
+            <div class="card" id="card-sort-actions">
+                <div class="card-title">Sort</div>
+                <div class="sort-path-row">
+                    <input id="input-sort-dest" type="text" placeholder="Destination folder" />
+                    <button id="btn-pick-dest" class="icon-btn" title="Browse folders">&#128193;</button>
+                    <button id="btn-apply-dest" class="icon-btn" title="Apply">&#128269;</button>
+                    <button id="btn-clear-dest" class="icon-btn" title="Clear">&#128465;</button>
+                </div>
+                <label class="field-label">sort.format.outputfolder (tokens: &lt;ACTORS&gt;, &lt;STUDIO&gt;, &lt;LABEL&gt;, &lt;SET&gt;, &lt;YEAR&gt;, &lt;ID&gt;)</label>
+                <input id="input-outputfolder" type="text" placeholder="e.g. <ACTRESS>" />
+                <label class="field-label">sort.format.folder</label>
+                <input id="input-folder" type="text" placeholder="e.g. <ID> [<STUDIO>] - <TITLE> (<YEAR>)" />
+                <label class="field-label">sort.format.file</label>
+                <input id="input-file" type="text" placeholder="e.g. <ID>" />
+
+                <div class="preset-row">
+                    <button class="preset-btn" data-preset="actress">Actress&nbsp;&rarr;&nbsp;Code</button>
+                    <button class="preset-btn" data-preset="group">Group / Unknown / Actress</button>
+                    <button class="preset-btn" data-preset="flat">Flat code-only</button>
+                </div>
+
+                <div class="checkbox-row">
+                    <label><input type="checkbox" id="flag-groupactress" checked /> groupActress</label>
+                    <label><input type="checkbox" id="flag-unknownactress" checked /> unknownActress</label>
+                </div>
+
+                <div class="checkbox-row">
+                    <label><input type="checkbox" id="flag-recurse" /> Recurse source</label>
+                    <label><input type="checkbox" id="flag-update" /> Update</label>
+                    <label><input type="checkbox" id="flag-force" /> Force</label>
+                </div>
+
+                <div class="preview-line">
+                    <span class="label">Preview:</span>
+                    <code id="preview-dest">—</code>
+                </div>
+
+                <div class="button-row">
+                    <button id="btn-preview-tree" class="full-btn">&#128065; PREVIEW TREE</button>
+                </div>
+            </div>
+
+            <div class="card" id="card-file-browser">
+                <div class="browser-header">
+                    <span id="browser-cwd" class="cwd">—</span>
+                    <input id="search-files" type="text" placeholder="Search" class="search-input" />
+                </div>
+                <table class="file-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th class="col-size">Size</th>
+                            <th class="col-mtime">Last Modified</th>
+                            <th class="col-action">Sort</th>
+                        </tr>
+                    </thead>
+                    <tbody id="file-table-body">
+                        <tr><td colspan="4" class="empty">Enter a path below to begin</td></tr>
+                    </tbody>
+                </table>
+                <div class="pager">
+                    <span id="pager-info">0-0 of 0</span>
+                    <button id="btn-page-prev" class="icon-btn" title="Previous page">&#8249;</button>
+                    <button id="btn-page-next" class="icon-btn" title="Next page">&#8250;</button>
+                </div>
+                <div class="browser-footer">
+                    <input id="input-browse-path" type="text" placeholder="Enter a directory" />
+                    <button id="btn-pick-source" class="icon-btn" title="Browse folders">&#128193;</button>
+                    <button id="btn-browse" class="icon-btn" title="Load">&#128269;</button>
+                    <button id="btn-browse-up" class="icon-btn" title="Parent">&#8593;</button>
+                </div>
+                <div class="pagesize-row">
+                    <label>PageSize
+                        <select id="select-pagesize">
+                            <option>5</option>
+                            <option selected>25</option>
+                            <option>50</option>
+                            <option>100</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+        </section>
+
+        <section class="column right">
+            <div class="card" id="card-aggregated">
+                <div class="card-title">Aggregated Data</div>
+                <div class="agg-grid" id="agg-grid">
+                    <!-- populated by JS -->
+                </div>
+                <div class="button-row">
+                    <button id="btn-apply" class="action-btn">&#10003; APPLY</button>
+                    <button id="btn-json" class="action-btn">&#9998; JSON</button>
+                    <button id="btn-reset" class="action-btn">&#8634; RESET</button>
+                </div>
+                <div class="button-row">
+                    <button id="btn-manual-search" class="full-btn">&#128269; MANUAL SEARCH</button>
+                </div>
+            </div>
+
+            <div class="card" id="card-actresses">
+                <div class="card-title">Actresses</div>
+                <div class="actress-grid" id="actress-grid">
+                    <div class="empty">No scrape data yet</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div class="modal" id="modal-json" hidden>
+        <div class="modal-inner">
+            <div class="modal-header">
+                <span>Raw scrape JSON</span>
+                <button class="icon-btn modal-close" data-close="modal-json">&times;</button>
+            </div>
+            <pre id="json-body" class="json-body"></pre>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-manual" hidden>
+        <div class="modal-inner narrow">
+            <div class="modal-header">
+                <span>Manual search</span>
+                <button class="icon-btn modal-close" data-close="modal-manual">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input id="manual-query" type="text" placeholder="Content ID (e.g. CAWD-125) or r18.dev URL" />
+                <button id="btn-manual-go" class="full-btn">Search</button>
+                <div id="manual-status" class="status-line"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-actress" hidden>
+        <div class="modal-inner narrow">
+            <div class="modal-header">
+                <span>Edit actress</span>
+                <button class="icon-btn modal-close" data-close="modal-actress">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label>Name<input id="actress-edit-name" type="text" /></label>
+                <label>Japanese Name<input id="actress-edit-jp" type="text" /></label>
+                <button id="btn-actress-save" class="full-btn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-tree" hidden>
+        <div class="modal-inner wide">
+            <div class="modal-header">
+                <span>Output folder preview</span>
+                <button class="icon-btn modal-close" data-close="modal-tree">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="tree-summary" class="status-line"></div>
+                <pre id="tree-body" class="tree-body"></pre>
+                <div id="tree-unresolved"></div>
+                <button id="btn-sort-all" class="full-btn primary">&#9654; SORT ALL</button>
+                <div id="sort-all-progress" class="progress"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-folder-picker" hidden>
+        <div class="modal-inner wide">
+            <div class="modal-header">
+                <span id="picker-title">Choose folder</span>
+                <button class="icon-btn modal-close" data-close="modal-folder-picker">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="picker-pathbar">
+                    <button id="picker-up" class="icon-btn" title="Parent">&#8593;</button>
+                    <input id="picker-path" type="text" />
+                    <button id="picker-go" class="icon-btn" title="Go">&#128269;</button>
+                </div>
+                <ul id="picker-list" class="picker-list"></ul>
+                <div class="button-row">
+                    <button id="picker-cancel" class="action-btn">Cancel</button>
+                    <button id="picker-select" class="action-btn primary">&#10003; Use this folder</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-screens" hidden>
+        <div class="modal-inner wide">
+            <div class="modal-header">
+                <span>Screenshots</span>
+                <button class="icon-btn modal-close" data-close="modal-screens">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="screens-grid" class="screens-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-host" class="toast-host"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

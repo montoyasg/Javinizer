@@ -107,6 +107,7 @@
         'Set-JVEmbyThumbs',
         'Set-JVMovie',
         'Start-JVGUI',
+        'Start-JVWeb',
         'Update-JVModule',
         'Update-JVNfo',
         'Update-JVThumbCsv',
