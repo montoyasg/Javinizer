@@ -436,6 +436,11 @@
             });
             out.textContent = res.filePath || '—';
             updateDestinationDisplay({ source: f.relativePath || f.name, target: res.filePath || '—' });
+            if (res.partNumber && res.partNumber > 0) {
+                const idx = state.selectedIndex + 1;
+                const total = state.videoFiles.length;
+                qs('#nav-header').textContent = `(${idx} of ${total}) ${stripExt(f.name)} · part ${res.partNumber}`;
+            }
         } catch (e) {
             out.textContent = '(' + e.message + ')';
             updateDestinationDisplay({ source: f.relativePath || f.name, target: e.message, error: true });

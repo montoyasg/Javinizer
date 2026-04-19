@@ -41,6 +41,7 @@ Add-PodeRoute -Method Post -Path '/api/sort' -ScriptBlock {
             folderPath = $result.folderPath
             filePath   = $result.filePath
             id         = $result.id
+            partNumber = $result.partNumber
             warnings   = @($result.warnings)
         }
     } catch {

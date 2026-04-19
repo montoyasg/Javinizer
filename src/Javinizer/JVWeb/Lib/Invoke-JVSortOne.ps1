@@ -28,20 +28,22 @@ function Invoke-JVSortOne {
         return [PSCustomObject]@{ ok = $false; error = "File not found: $Path" }
     }
 
+    $info = Resolve-JVFileInfo -File $file -Settings $Settings
+    $partNumber = if ($info) { [int]$info.PartNumber } else { 0 }
+
     $effectiveData = $Data
     if (-not $effectiveData) {
-        $id = Resolve-JVContentId -File $file -Settings $Settings
-        if (-not $id) {
+        if (-not $info) {
             return [PSCustomObject]@{ ok = $false; error = "Could not extract content ID from filename" }
         }
-        $effectiveData = Invoke-JVScrapeCached -Id $id -Cache $Cache
+        $effectiveData = Invoke-JVScrapeCached -Id $info.Id -Cache $Cache
         if (-not $effectiveData) {
-            return [PSCustomObject]@{ ok = $false; error = "No R18.dev match for ID [$id]" }
+            return [PSCustomObject]@{ ok = $false; error = "No R18.dev match for ID [$($info.Id)]" }
         }
     }
 
     try {
-        $sortResult = Get-JVSortData -Path $file.FullName -DestinationPath $DestinationPath -Data $effectiveData -Settings $Settings -Update:$Update -Force:$Force -ErrorAction Stop
+        $sortResult = Get-JVSortData -Path $file.FullName -DestinationPath $DestinationPath -Data $effectiveData -Settings $Settings -PartNumber $partNumber -Update:$Update -Force:$Force -ErrorAction Stop
     } catch {
         return [PSCustomObject]@{ ok = $false; error = "Get-JVSortData failed: $PSItem" }
     }
@@ -63,8 +65,9 @@ function Invoke-JVSortOne {
     # (e.g. crop.py silently failed due to missing Pillow, or Python isn't installed),
     # crop it ourselves with SixLabors.ImageSharp. Copy-fanart is the last resort
     # for offline first-runs.
+    # Skip for parts > 1 — Set-JVMovie already dedupes poster/thumb writes to part 0/1.
     $warnings = @()
-    if ($Settings.'sort.download.posterimg' -and $sortResult.SortData.PosterPath) {
+    if ($partNumber -le 1 -and $Settings.'sort.download.posterimg' -and $sortResult.SortData.PosterPath) {
         $thumb = $sortResult.SortData.ThumbPath
         foreach ($poster in @($sortResult.SortData.PosterPath)) {
             if (Test-Path -LiteralPath $poster) { continue }
@@ -89,6 +92,7 @@ function Invoke-JVSortOne {
         folderPath = $sortResult.SortData.FolderPath
         filePath   = $sortResult.SortData.FilePath
         id         = $effectiveData.Id
+        partNumber = $partNumber
         warnings   = $warnings
     }
 }

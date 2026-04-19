@@ -28,6 +28,7 @@ Add-PodeRoute -Method Post -Path '/api/preview' -ScriptBlock {
             filePath   = $result.filePath
             leaves     = $result.leaves
             id         = $result.id
+            partNumber = $result.partNumber
         }
     } catch {
         Write-PodeHost "preview error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red
