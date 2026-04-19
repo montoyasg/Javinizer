@@ -3,7 +3,7 @@
   <br>
 </h1>
 
-<h4 align="center"><strong>A commandline and GUI based PowerShell module used to scrape metadata and sort your local Japanese Adult Video (JAV) files into a media library compatible format.</strong></h4>
+<h4 align="center"><strong>A commandline and web GUI based PowerShell module used to scrape metadata and sort your local Japanese Adult Video (JAV) files into a media library compatible format.</strong></h4>
 
 <br>
 
@@ -39,11 +39,6 @@
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/javinizer/Javinizer/master/media/demo.gif" width="1280">
-  <img src="https://raw.githubusercontent.com/javinizer/Javinizer/master/media/demo-gui.jpg" width="1280">
-</p>
-
-<p align="center">
-  <a href="https://gfycat.com/spiriteddefenselessgrouper">View GUI demo video (NSFW)</a>
 </p>
 
 ## Features
@@ -124,28 +119,19 @@ Here are some common commands that you can run with Javinizer:
 > Javinizer -Help
 ```
 
-### Quick start (GUI)
-
-#### Windows
+### Quick start (Web GUI)
 
 ```powershell
-# Install PowerShell Universal to Javinizer module folder (Run as administrator)
-> Javinizer -InstallGUI
-
-# Runs the PowerShell Universal application and opens the Javinizer GUI dashboard page
-# Optionally specify a custom port using the -Port parameter
-> Javinizer -OpenGUI
+# Launch the cross-platform web GUI on http://localhost:8080
+> Start-JVWeb
 ```
 
-After running `Javinizer -OpenGUI`, the PowerShell Universal process should run in a separate window and open your browser to 'http://localhost:[PORT]/' which contains the Javinizer dashboard.
+See [src/Javinizer/JVWeb/README.md](./src/Javinizer/JVWeb/README.md) for full options (`-Port`, `-Bind`, `-NoBrowser`).
 
 #### Docker
 
 ```
-# To run GUI
-docker run --name javinizer -p 8600:8600 -d javinizer/javinizer:latest
-
-# To run CLI
+# CLI
 docker run --name javinizer -p 8600:8600 -d javinizer/javinizer:latest-cli
 
 # Optional

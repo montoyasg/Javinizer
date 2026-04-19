@@ -298,7 +298,6 @@ function Javinizer {
         [Boolean]$RenameFile,
 
         [Parameter(ParameterSetName = 'Path')]
-        [Parameter(ParameterSetName = 'Gui')]
         [Switch]$Force,
 
         [Parameter(ParameterSetName = 'Path')]
@@ -460,16 +459,6 @@ function Javinizer {
         [Parameter(ParameterSetName = 'Help', Mandatory = $true)]
         [Alias('h')]
         [Switch]$Help,
-
-        [Parameter(ParameterSetName = 'Gui')]
-        [Switch]$InstallGUI,
-
-        [Parameter(ParameterSetName = 'Gui')]
-        [Switch]$OpenGUI,
-
-        [Parameter(ParameterSetName = 'Gui')]
-        [ValidateRange(0, 65353)]
-        [Int]$Port = 8600,
 
         [Parameter(ParameterSetName = 'Update')]
         [Switch]$UpdateModule,
@@ -643,14 +632,6 @@ function Javinizer {
         }
 
         switch ($PsCmdlet.ParameterSetName) {
-            'Gui' {
-                if ($InstallGUI) {
-                    Install-JVGui -Force:$Force
-                } elseif ($OpenGUI) {
-                    Start-JVGui -Port:$Port
-                }
-            }
-
             'Clean' {
                 if ($Depth -and $Recurse) {
                     $files = Get-JVItem -Settings $Settings -Path $Path -Recurse:$Recurse -Depth:$Depth -Strict:$Strict
