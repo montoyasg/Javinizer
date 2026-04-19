@@ -6,6 +6,9 @@ function Start-JVGui {
         [Int]$Port = 8600
     )
 
+    Write-Host "Start-JVGui launches the legacy PowerShell Universal dashboard (Windows only, broken on PS 7.4+)." -ForegroundColor Yellow
+    Write-Host "Prefer 'Start-JVWeb' — cross-platform, no install step. See JVWeb/README.md." -ForegroundColor Yellow
+
     # Get module details
     $psuVersion = '1.5.13'
     $javinizerModulePath = (Get-InstalledModule -Name Javinizer).InstalledLocation
