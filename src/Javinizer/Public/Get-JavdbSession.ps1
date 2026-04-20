@@ -17,6 +17,10 @@ function Get-JavdbSession {
         if (Test-Path -LiteralPath $cachePath) {
             try {
                 $cached = Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
+                if ($cached -is [Array]) {
+                    $cached = @($cached | Where-Object { $_ -and $_.PSObject.Properties['Session'] -and $_.Session })[-1]
+                }
+                if (-not $cached -or -not $cached.ExpiresAt) { throw 'Cache missing ExpiresAt' }
                 $expires = [DateTime]::Parse($cached.ExpiresAt).ToUniversalTime()
                 if ($expires -gt (Get-Date).ToUniversalTime().AddHours(1)) {
                     if ($PassThru) { return $cached }
