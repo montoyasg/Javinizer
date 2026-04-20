@@ -39,6 +39,11 @@ See https://playwright.dev/dotnet/docs/intro for details.
         $playwright = [Microsoft.Playwright.Playwright]::CreateAsync().GetAwaiter().GetResult()
         $launchOpts = New-Object Microsoft.Playwright.BrowserTypeLaunchOptions
         $launchOpts.Headless = [bool]$Headless
+        $launchOpts.Args = [string[]]@(
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        )
         $browser = $playwright.Chromium.LaunchAsync($launchOpts).GetAwaiter().GetResult()
 
         $contextOpts = New-Object Microsoft.Playwright.BrowserNewContextOptions
