@@ -130,14 +130,25 @@ See the [Web GUI](#web-gui) section below for `-Port`/`-Bind`/`-NoBrowser`, the 
 
 #### Docker
 
-```
-# CLI
-docker run --name javinizer -p 8600:8600 -d javinizer/javinizer:latest-cli
+A self-contained Docker image is published to [`montoyasg/javinizer-ng`](https://hub.docker.com/r/montoyasg/javinizer-ng) on every push to `master`. It bundles JVWeb, Pode, the Javinizer module, Microsoft.Playwright + Chromium (for the javdb fallback), and a noVNC web desktop so the one-time javdb login can be done from your browser. Multi-arch: `linux/amd64` and `linux/arm64`.
 
-# Optional
-# You will need to copy the jvSettings.json configuration from [here](./src/Javinizer/jvSettings.json) and write it to your path/to/jvSettings.json location
--v path/to/jvSettings.json:/home/jvSettings.json
+```bash
+docker run -d --name javinizer-ng \
+  -p 8600:8600 \
+  -p 6080:6080 \
+  -v jvweb-settings:/root/.jvsettings \
+  -v jvweb-cache:/root/.javinizer \
+  -v jvweb-config:/root/.config/Javinizer \
+  -v /path/to/your/media:/media \
+  -e VNC_PASSWORD=changeme \
+  montoyasg/javinizer-ng:latest
 ```
+
+- **`http://localhost:8600`** — JVWeb UI.
+- **`http://localhost:6080/vnc.html`** — noVNC desktop. Use this once to complete the javdb login when JVWeb prompts; the captured session is persisted in the `jvweb-config` volume and reused for ~30 days.
+- **`VNC_PASSWORD`** — leave unset for no auth (only safe on localhost). Set a value when exposing port `6080` beyond `127.0.0.1`.
+- **Settings** — JVWeb writes user preferences to `/root/.jvsettings/jvSettings.json` inside the container. To start from the bundled defaults, copy [`src/Javinizer/jvSettings.json`](./src/Javinizer/jvSettings.json) into the `jvweb-settings` volume before first launch.
+- **Translation is not bundled.** `googletrans` has known dependency conflicts on Python 3.10 and the JVWeb UI exposes no toggle for it. If you hand-set `sort.metadata.nfo.translate=true` in `jvSettings.json`, install the package inside the container with `docker exec javinizer-ng pip3 install googletrans==4.0.0rc1`.
 
 ## Web GUI
 
