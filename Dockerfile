@@ -11,19 +11,27 @@ ENV HOME=/root \
     PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        wget curl ca-certificates gnupg apt-transport-https \
+        wget curl ca-certificates \
         supervisor \
         xvfb fluxbox x11vnc novnc websockify \
         python3 python3-pip \
         mediainfo \
+        libicu70 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget -q https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb \
-    && dpkg -i packages-microsoft-prod.deb \
-    && rm packages-microsoft-prod.deb \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends powershell \
-    && rm -rf /var/lib/apt/lists/*
+ARG POWERSHELL_VERSION=7.4.6
+RUN set -eux \
+    && case "$(dpkg --print-architecture)" in \
+        amd64) PS_ARCH=x64 ;; \
+        arm64) PS_ARCH=arm64 ;; \
+        *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac \
+    && wget -q "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-${PS_ARCH}.tar.gz" -O /tmp/pwsh.tar.gz \
+    && mkdir -p /opt/microsoft/powershell/7 \
+    && tar -xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7 \
+    && chmod +x /opt/microsoft/powershell/7/pwsh \
+    && ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh \
+    && rm /tmp/pwsh.tar.gz
 
 RUN pwsh -NoProfile -Command "Set-PSRepository PSGallery -InstallationPolicy Trusted; Install-Module Pode -Scope AllUsers -Force"
 
