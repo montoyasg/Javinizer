@@ -76,7 +76,7 @@ function Start-JVWebServer {
         } -ArgumentList $openUrl
     }
 
-    Start-PodeServer -Threads 4 @startParams -ScriptBlock {
+    Start-PodeServer -Threads 16 -RequestTimeout 300 @startParams -ScriptBlock {
         $bind = $env:JVWEB_BIND
         $port = [int]$env:JVWEB_PORT
         $staticPath = $env:JVWEB_STATIC
