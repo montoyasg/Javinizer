@@ -30,7 +30,7 @@ RUN set -eux \
     && mkdir -p /opt/microsoft/powershell/7 \
     && tar -xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7 \
     && chmod +x /opt/microsoft/powershell/7/pwsh \
-    && ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh \
+    && ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh \
     && rm /tmp/pwsh.tar.gz
 
 RUN pwsh -NoProfile -Command "Set-PSRepository PSGallery -InstallationPolicy Trusted; Install-Module Pode -Scope AllUsers -Force"
