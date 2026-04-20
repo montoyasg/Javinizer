@@ -6,7 +6,9 @@ function Start-JVWeb {
 
         [string]$Bind = '127.0.0.1',
 
-        [switch]$NoBrowser
+        [switch]$NoBrowser,
+
+        [switch]$Next
     )
 
     $jvWebScript = Join-Path -Path ((Get-Item $PSScriptRoot).Parent.FullName) -ChildPath 'JVWeb' -AdditionalChildPath 'JVWeb.ps1'
@@ -15,5 +17,5 @@ function Start-JVWeb {
         return
     }
 
-    & $jvWebScript -Port $Port -Bind $Bind -NoBrowser:$NoBrowser
+    & $jvWebScript -Port $Port -Bind $Bind -NoBrowser:$NoBrowser -Next:$Next
 }

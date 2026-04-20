@@ -11,7 +11,7 @@ Add-PodeRoute -Method Get -Path '/api/browse' -ScriptBlock {
         return
     }
 
-    $item = Get-Item -LiteralPath $resolved -ErrorAction SilentlyContinue
+    $item = Get-Item -LiteralPath $resolved -Force -ErrorAction SilentlyContinue
     if (-not $item -or -not $item.PSIsContainer) {
         Write-PodeJsonResponse -Value @{ error = "Not a directory: $resolved" } -StatusCode 400
         return

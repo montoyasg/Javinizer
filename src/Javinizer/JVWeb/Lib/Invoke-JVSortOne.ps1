@@ -42,6 +42,14 @@ function Invoke-JVSortOne {
         }
     }
 
+    # Pode parses JSON bodies as Hashtable on PS Core. Downstream cmdlets
+    # (Set-JVMovie → $Data | Get-JVNfo) rely on ValueFromPipelineByPropertyName,
+    # which does not see hashtable keys. Round-trip through JSON to normalize
+    # to PSCustomObject recursively.
+    if ($effectiveData -is [System.Collections.IDictionary]) {
+        $effectiveData = $effectiveData | ConvertTo-Json -Depth 32 -Compress | ConvertFrom-Json
+    }
+
     try {
         $sortResult = Get-JVSortData -Path $file.FullName -DestinationPath $DestinationPath -Data $effectiveData -Settings $Settings -PartNumber $partNumber -Update:$Update -Force:$Force -ErrorAction Stop
     } catch {

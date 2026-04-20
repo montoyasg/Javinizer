@@ -9,7 +9,14 @@ function Get-JVSettings {
         if ($PSBoundParameters.ContainsKey('Path')) {
             $settingsPath = $Path
         } else {
-            $settingsPath = Join-Path -Path ((Get-Item $PSScriptRoot).Parent) -ChildPath 'jvSettings.json'
+            # User override (copy-on-write target from Save-JVSettings) takes
+            # precedence over the module-bundled defaults.
+            $userPath = Join-Path -Path $HOME -ChildPath '.jvsettings/jvSettings.json'
+            if (Test-Path -LiteralPath $userPath) {
+                $settingsPath = $userPath
+            } else {
+                $settingsPath = Join-Path -Path ((Get-Item $PSScriptRoot).Parent) -ChildPath 'jvSettings.json'
+            }
         }
 
         try {

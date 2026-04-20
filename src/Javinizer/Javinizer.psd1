@@ -103,6 +103,7 @@
         'Get-MgstageUrl',
         'Get-R18DevData',
         'Get-R18DevUrl',
+        'Save-JVSettings',
         'Set-JavlibraryOwned',
         'Set-JVEmbyThumbs',
         'Set-JVMovie',

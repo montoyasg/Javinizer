@@ -6,6 +6,8 @@ param(
 
     [switch]$NoBrowser,
 
+    [switch]$Next,
+
     [string]$Bind = '127.0.0.1'
 )
 
@@ -36,4 +38,4 @@ if (-not (Get-Module -ListAvailable -Name Pode)) {
 Get-ChildItem -Path (Join-Path $script:JVWebRoot 'Lib') -Filter '*.ps1' | ForEach-Object { . $_.FullName }
 . (Join-Path $script:JVWebRoot 'Server' 'Start-JVWebServer.ps1')
 
-Start-JVWebServer -Port $Port -Bind $Bind -NoBrowser:$NoBrowser -JVWebRoot $script:JVWebRoot -ManifestPath $manifestPath
+Start-JVWebServer -Port $Port -Bind $Bind -NoBrowser:$NoBrowser -Next:$Next -JVWebRoot $script:JVWebRoot -ManifestPath $manifestPath
