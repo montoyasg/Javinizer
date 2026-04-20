@@ -9,6 +9,7 @@ Add-PodeRoute -Method Get -Path '/api/settings' -ScriptBlock {
             'web.sort.recurse'
             'web.sort.update'
             'web.sort.force'
+            'web.sort.src'
             'web.sort.dest'
         )
 
@@ -39,6 +40,7 @@ Add-PodeRoute -Method Post -Path '/api/settings' -ScriptBlock {
             'web.sort.recurse'
             'web.sort.update'
             'web.sort.force'
+            'web.sort.src'
             'web.sort.dest'
         )
 

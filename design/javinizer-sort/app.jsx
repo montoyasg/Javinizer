@@ -78,6 +78,7 @@ function buildFullSettingsPayload(s) {
     'web.sort.recurse': !!s.recurse,
     'web.sort.update': !!s.update,
     'web.sort.force': !!s.force,
+    'web.sort.src': s.src || '',
     'web.sort.dest': s.dest || '',
   };
 }
@@ -93,6 +94,7 @@ function parseServerSettings(srv) {
     recurse: !!srv['web.sort.recurse'],
     update: !!srv['web.sort.update'],
     force: !!srv['web.sort.force'],
+    src: srv['web.sort.src'] ?? '',
     dest: srv['web.sort.dest'] ?? '',
   };
 }
@@ -368,7 +370,7 @@ function TokenInput({ value, onChange, tokens, placeholder }) {
 
 function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved }) {
   const u = (k, v) => set(p => ({ ...p, [k]: v }));
-  const [pickerTarget, setPickerTarget] = useState(null); // 'dest'
+  const [pickerTarget, setPickerTarget] = useState(null); // 'src' | 'dest'
   const dirty = useMemo(
     () => settingsDiffer(buildFullSettingsPayload(s), serverSettings),
     [s, serverSettings]
@@ -409,6 +411,18 @@ function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved }
   const applyPreset = (p) => set(x => ({ ...x, ...p.values }));
   return (
     <div style={{background:'var(--surface-2)', borderBottom:'1px solid var(--border)', padding:'10px 16px', display:'flex', gap:12, flexWrap:'wrap', alignItems:'flex-end', flexShrink:0}}>
+      {/* Source — plain input + browse button. Used as the FileBrowser start path on load. */}
+      <div style={{display:'flex', flexDirection:'column', gap:3, flex:'0 0 220px'}}>
+        <label style={S.label}>Source folder</label>
+        <div style={{display:'flex', gap:0}}>
+          <input
+            value={s.src||''} onChange={e=>u('src',e.target.value)}
+            placeholder="/Volumes/…"
+            style={{...S.field, fontFamily:'var(--mono)', fontSize:11, borderRadius:'4px 0 0 4px', flex:1}}
+          />
+          <button onClick={()=>setPickerTarget('src')} title="Browse" style={{background:'var(--surface-3)', border:'1px solid var(--border)', borderLeft:'none', borderRadius:'0 4px 4px 0', padding:'0 8px', color:'var(--text-muted)', cursor:'pointer', fontSize:13}}>📂</button>
+        </div>
+      </div>
       {/* Destination — plain input + browse button */}
       <div style={{display:'flex', flexDirection:'column', gap:3, flex:'0 0 220px'}}>
         <label style={S.label}>Destination folder</label>
@@ -511,8 +525,8 @@ function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved }
       </div>
       {pickerTarget && (
         <FolderPickerModal
-          initial={s.dest || '/Volumes'}
-          onSelect={v => u('dest', v)}
+          initial={s[pickerTarget] || '/Volumes'}
+          onSelect={v => u(pickerTarget, v)}
           onClose={() => setPickerTarget(null)}
         />
       )}
@@ -522,10 +536,11 @@ function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved }
 
 // ─── File Browser ─────────────────────────────────────────────────────────────
 
-function FileBrowser({ selected, onSelect, onVideosChange, recurse, sortedPaths }) {
+function FileBrowser({ selected, onSelect, onVideosChange, recurse, sortedPaths, initialPath }) {
   const removed = sortedPaths || new Set();
+  const startPath = initialPath || DEFAULT_ROOT;
   const [cwd, setCwd] = useState('');
-  const [pathInput, setPathInput] = useState(DEFAULT_ROOT);
+  const [pathInput, setPathInput] = useState(startPath);
   const [entries, setEntries] = useState([]);
   const [videos, setVideos] = useState([]);
   const [search, setSearch] = useState('');
@@ -551,7 +566,7 @@ function FileBrowser({ selected, onSelect, onVideosChange, recurse, sortedPaths 
     } finally { setLoading(false); }
   }, [onVideosChange, recurse]);
 
-  useEffect(() => { browse(DEFAULT_ROOT); }, []);
+  useEffect(() => { browse(startPath); }, []);
   useEffect(() => { if (cwd) browse(cwd); }, [recurse]);
 
   // expose search focus for keyboard shortcut
@@ -1198,7 +1213,7 @@ function App() {
       <div style={{flex:1, display:'flex', overflow:'hidden'}}>
         {/* Sidebar */}
         <div style={{width:268, flexShrink:0, borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-          <FileBrowser selected={selectedFile} onSelect={handleSelect} onVideosChange={handleVideosChange} recurse={settings.recurse} sortedPaths={sortedPaths} />
+          <FileBrowser selected={selectedFile} onSelect={handleSelect} onVideosChange={handleVideosChange} recurse={settings.recurse} sortedPaths={sortedPaths} initialPath={settings.src} />
         </div>
         {/* Detail */}
         <div style={{flex:1, overflow:'hidden', display:'flex', flexDirection:'column'}}>
