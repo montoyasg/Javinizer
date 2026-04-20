@@ -43,6 +43,7 @@ RUN dotnet new console -o /opt/playwright \
     && pwsh -NoProfile -Command "/opt/playwright/bin/Release/net8.0/playwright.ps1 install --with-deps chromium"
 
 COPY src/Javinizer/ /opt/javinizer/src/Javinizer/
+COPY design/ /opt/javinizer/design/
 COPY docker/ /opt/docker/
 
 RUN chmod +x /opt/docker/entrypoint.sh /opt/docker/x11vnc-launch.sh
