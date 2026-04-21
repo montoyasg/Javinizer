@@ -67,17 +67,19 @@ function Invoke-JavdbRequest {
             }
 
             if ($status -eq 403) {
-                $hasSession = $false
+                $hasAnyCookie = $false
                 if ($WebSession -and $WebSession.Cookies.Count -gt 0) {
                     foreach ($c in $WebSession.Cookies.GetCookies('https://javdb.com')) {
-                        if ($c.Name -eq '_jdb_session' -and $c.Value) { $hasSession = $true; break }
+                        if (($c.Name -eq '_jdb_session' -or $c.Name -eq 'cf_clearance') -and $c.Value) {
+                            $hasAnyCookie = $true; break
+                        }
                     }
                 }
-                if (-not $hasSession) {
-                    throw "JavdbAuthRequired: 403 on [$Uri]. Set javdb.cookie.session or run Get-JavdbSession -Force."
+                if (-not $hasAnyCookie) {
+                    throw "JavdbAuthRequired: 403 on [$Uri]. Click Refresh Javdb session or paste cookies into settings."
                 }
 
-                # Retries exhausted with a valid session. .NET's TLS/HTTP2 fingerprint
+                # Retries exhausted with cookies present. .NET's TLS/HTTP2 fingerprint
                 # doesn't match what Cloudflare bound the cookie to, so retry once
                 # through a short-lived Playwright Chromium which uses the exact same
                 # network stack that originally issued cf_clearance.

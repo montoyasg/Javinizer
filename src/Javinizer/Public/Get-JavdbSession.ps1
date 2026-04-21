@@ -8,7 +8,11 @@ function Get-JavdbSession {
         [Switch]$Force,
 
         [Parameter()]
-        [Switch]$PassThru
+        [Switch]$PassThru,
+
+        [Parameter()]
+        [ValidateSet('Anonymous', 'Login')]
+        [string]$Mode = 'Anonymous'
     )
 
     $cachePath = Get-JavdbSessionCachePath
@@ -47,8 +51,9 @@ function Get-JavdbSession {
         }
     }
 
-    # Strategy 3: interactive Playwright capture (original flow)
-    $captured = Invoke-JavdbSessionCapture
+    # Strategy 3: Playwright capture. Anonymous by default (headless, zero interaction,
+    # just grabs cf_clearance for Cloudflare). Login mode is opt-in for login-gated data.
+    $captured = Invoke-JavdbSessionCapture -Mode $Mode
     Save-JavdbSessionCache -Path $cachePath -Session $captured
 
     if ($PassThru) { return $captured }

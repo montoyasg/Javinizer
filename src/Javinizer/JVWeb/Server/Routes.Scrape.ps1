@@ -115,9 +115,18 @@ Add-PodeRoute -Method Post -Path '/api/screens' -ScriptBlock {
 Add-PodeRoute -Method Post -Path '/api/javdb/session/refresh' -ScriptBlock {
     try {
         $settings = Get-PodeState -Name 'settings'
-        $info = Get-JavdbSession -Force -Settings $settings -PassThru
-        if (-not $info -or -not $info.Session) {
-            Write-PodeJsonResponse -Value @{ error = 'Session capture returned no cookie.' } -StatusCode 500
+        $body = $WebEvent.Data
+        $mode = 'Anonymous'
+        if ($body -and $body.mode) {
+            $m = "$($body.mode)".Trim()
+            if ($m -ieq 'login')     { $mode = 'Login' }
+            elseif ($m -ieq 'anonymous') { $mode = 'Anonymous' }
+        }
+
+        $info = Get-JavdbSession -Force -Settings $settings -PassThru -Mode $mode
+        $hasAny = $info -and ($info.Session -or $info.CfClearance)
+        if (-not $hasAny) {
+            Write-PodeJsonResponse -Value @{ error = 'Session capture returned no cookies.' } -StatusCode 500
             return
         }
         $src = $null
@@ -125,6 +134,7 @@ Add-PodeRoute -Method Post -Path '/api/javdb/session/refresh' -ScriptBlock {
         Write-PodeJsonResponse -Value @{
             status     = 'ok'
             source     = $src
+            mode       = $mode.ToLower()
             capturedAt = $info.CapturedAt
             expiresAt  = $info.ExpiresAt
         }

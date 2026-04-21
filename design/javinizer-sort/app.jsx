@@ -382,13 +382,14 @@ function TokenInput({ value, onChange, tokens, placeholder }) {
 // ─── Javdb session panel ──────────────────────────────────────────────────────
 
 const JAVDB_COOKIE_SOURCES = [
-  { value: '',         label: 'Playwright (default)', desc: 'Open Chromium and log in manually' },
-  { value: 'chrome',   label: 'Chrome',               desc: 'Read cookies from your local Chrome profile' },
-  { value: 'chromium', label: 'Chromium',             desc: 'Read cookies from your local Chromium profile' },
-  { value: 'edge',     label: 'Edge',                 desc: 'Read cookies from your local Edge profile' },
-  { value: 'brave',    label: 'Brave',                desc: 'Read cookies from your local Brave profile' },
-  { value: 'firefox',  label: 'Firefox',              desc: 'Read cookies from your local Firefox profile' },
-  { value: 'paste',    label: 'Paste cookies manually', desc: 'Enter _jdb_session / cf_clearance / UA below' },
+  { value: '',         label: 'Auto (anonymous, recommended)', desc: 'Headless Chromium grabs cf_clearance — no login, no interaction' },
+  { value: 'login',    label: 'Playwright login (noVNC)',      desc: 'Open Chromium over noVNC so you can sign in once; needed for login-gated data' },
+  { value: 'chrome',   label: 'Chrome (host profile)',         desc: 'Read cookies from your local Chrome profile (desktop only)' },
+  { value: 'chromium', label: 'Chromium (host profile)',       desc: 'Read cookies from your local Chromium profile (desktop only)' },
+  { value: 'edge',     label: 'Edge (host profile)',           desc: 'Read cookies from your local Edge profile (desktop only)' },
+  { value: 'brave',    label: 'Brave (host profile)',          desc: 'Read cookies from your local Brave profile (desktop only)' },
+  { value: 'firefox',  label: 'Firefox (host profile)',        desc: 'Read cookies from your local Firefox profile (desktop only)' },
+  { value: 'paste',    label: 'Paste cookies manually',        desc: 'Enter _jdb_session / cf_clearance / UA below' },
 ];
 
 function JavdbSessionPanel({ s, set, addToast }) {
@@ -408,10 +409,15 @@ function JavdbSessionPanel({ s, set, addToast }) {
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
+  const choice = s.javdbCookieBrowser || '';
+  const isPaste = choice === 'paste';
+  const isLogin = choice === 'login';
+
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      const res = await api('/api/javdb/session/refresh', { method: 'POST' });
+      const body = isLogin ? { mode: 'login' } : { mode: 'anonymous' };
+      const res = await api('/api/javdb/session/refresh', { method: 'POST', body });
       const exp = res.expiresAt ? new Date(res.expiresAt).toLocaleDateString() : '?';
       const src = res.source || 'unknown';
       setStatus({ present: true, source: src, capturedAt: res.capturedAt, expiresAt: res.expiresAt });
@@ -422,9 +428,6 @@ function JavdbSessionPanel({ s, set, addToast }) {
       setRefreshing(false);
     }
   };
-
-  const choice = s.javdbCookieBrowser || '';
-  const isPaste = choice === 'paste';
   const dot = status?.present ? 'var(--green)' : 'var(--red)';
   const expText = status?.expiresAt ? new Date(status.expiresAt).toLocaleDateString() : null;
 
@@ -462,8 +465,9 @@ function JavdbSessionPanel({ s, set, addToast }) {
         </div>
       </div>
 
-      <div style={{fontSize:10, color:'var(--text-muted)', paddingLeft:2, fontStyle:'italic'}}>
-        Scrapes that return 403 Forbidden are automatically retried through Chromium so TLS/HTTP2 fingerprint matches the session.
+      <div style={{fontSize:10, color:'var(--text-muted)', paddingLeft:2, fontStyle:'italic', lineHeight:1.5}}>
+        Default mode is headless anonymous — Javdb video pages don't require login, only Cloudflare clearance, which the system captures automatically.
+        Scrapes that return 403 are also auto-retried through Chromium so TLS/HTTP2 matches the session.
       </div>
 
       {isPaste && (

@@ -91,7 +91,8 @@ function Invoke-JavdbBranch {
         return $null
     }
 
-    if (-not $sessionInfo -or -not $sessionInfo.Session) {
+    $hasAnyCookie = $sessionInfo -and ($sessionInfo.Session -or $sessionInfo.CfClearance)
+    if (-not $hasAnyCookie) {
         $msg = 'javdb: no session cookie available. Click Refresh Javdb session (or set javdb.cookie.browser / paste cookies).'
         Write-PodeHost $msg -ForegroundColor Yellow
         if ($ThrowOnError) { throw $msg }

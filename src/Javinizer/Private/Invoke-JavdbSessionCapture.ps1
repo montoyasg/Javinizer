@@ -2,7 +2,11 @@ function Invoke-JavdbSessionCapture {
     [CmdletBinding()]
     param (
         [Parameter()]
-        [Int]$TimeoutSeconds = 300,
+        [ValidateSet('Anonymous', 'Login')]
+        [string]$Mode = 'Anonymous',
+
+        [Parameter()]
+        [Int]$TimeoutSeconds,
 
         [Parameter()]
         [Object]$Headless,
@@ -32,13 +36,21 @@ See https://playwright.dev/dotnet/docs/intro for details.
 '@
     }
 
-    # TTY-aware headless default: env JVWEB_HEADLESS wins; then unattended shells
-    # (redirected stdin) get headless; interactive terminals get a visible window.
+    if (-not $PSBoundParameters.ContainsKey('TimeoutSeconds')) {
+        $TimeoutSeconds = if ($Mode -eq 'Login') { 300 } else { 60 }
+    }
+
+    # Headless default:
+    #   - Anonymous: always headless (no user interaction needed).
+    #   - Login: TTY-aware (headed in terminals, headless under redirected stdin).
+    #   Explicit -Headless and $env:JVWEB_HEADLESS override both.
     $resolvedHeadless = $null
     if ($PSBoundParameters.ContainsKey('Headless') -and $null -ne $Headless) {
         $resolvedHeadless = [bool]$Headless
     } elseif ($env:JVWEB_HEADLESS) {
         $resolvedHeadless = ($env:JVWEB_HEADLESS -eq '1' -or $env:JVWEB_HEADLESS -ieq 'true')
+    } elseif ($Mode -eq 'Anonymous') {
+        $resolvedHeadless = $true
     } else {
         $interactive = $false
         try { $interactive = (-not [Console]::IsInputRedirected) -and ($null -ne $Host.UI.RawUI) } catch {}
@@ -110,8 +122,14 @@ if (!window.chrome.runtime) { window.chrome.runtime = {}; }
             $page = $context.NewPageAsync().GetAwaiter().GetResult()
         }
 
-        Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Info -Message "[$($MyInvocation.MyCommand.Name)] Opening Chromium to https://javdb.com/login - please sign in to continue."
-        $page.GotoAsync('https://javdb.com/login').GetAwaiter().GetResult() | Out-Null
+        $targetUrl = if ($Mode -eq 'Login') { 'https://javdb.com/login' } else { 'https://javdb.com/' }
+        $msg = if ($Mode -eq 'Login') {
+            "[$($MyInvocation.MyCommand.Name)] Opening Chromium to $targetUrl - please sign in to continue."
+        } else {
+            "[$($MyInvocation.MyCommand.Name)] Capturing anonymous javdb session via $targetUrl (headless, no sign-in needed)."
+        }
+        Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Info -Message $msg
+        $page.GotoAsync($targetUrl).GetAwaiter().GetResult() | Out-Null
 
         $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
         $session = $null
@@ -132,26 +150,44 @@ if (!window.chrome.runtime) { window.chrome.runtime = {}; }
                 }
             }
 
-            $loggedIn = $false
-            if ($session -and ($rememberToken -or ($currentUrl -and $currentUrl -notmatch '/login'))) {
-                if ($currentUrl -and $currentUrl -notmatch '/login') { $loggedIn = $true }
+            if ($Mode -eq 'Login') {
+                $loggedIn = $false
+                if ($session -and ($rememberToken -or ($currentUrl -and $currentUrl -notmatch '/login'))) {
+                    if ($currentUrl -and $currentUrl -notmatch '/login') { $loggedIn = $true }
+                }
+                if ($loggedIn -and $session) { break }
+            } else {
+                # Anonymous: cf_clearance is the must-have (it's what CF actually gates on).
+                # A guest _jdb_session usually appears alongside; wait briefly for it, but
+                # don't block forever on it.
+                if ($cfClearance) {
+                    if ($session) { break }
+                    # Give _jdb_session a short grace period after cf_clearance appears.
+                    Start-Sleep -Milliseconds 1500
+                    $cookies2 = $context.CookiesAsync().GetAwaiter().GetResult()
+                    foreach ($c in $cookies2) { if ($c.Name -eq '_jdb_session') { $session = $c.Value } }
+                    break
+                }
             }
-
-            if ($loggedIn -and $session) { break }
         }
 
-        if (-not $session) {
+        if ($Mode -eq 'Login' -and -not $session) {
             throw "Timed out after ${TimeoutSeconds}s waiting for javdb login. _jdb_session was never captured."
         }
+        if ($Mode -eq 'Anonymous' -and -not $cfClearance) {
+            throw "Timed out after ${TimeoutSeconds}s waiting for Cloudflare clearance on javdb.com. Try again, or check that the container's outbound IP isn't on a CF block list."
+        }
 
-        Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Info -Message "[$($MyInvocation.MyCommand.Name)] Captured javdb session (length=$($session.Length))."
+        $sessionLen = if ($session) { $session.Length } else { 0 }
+        $cfLen = if ($cfClearance) { $cfClearance.Length } else { 0 }
+        Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Info -Message "[$($MyInvocation.MyCommand.Name)] Captured javdb $Mode session (session=$sessionLen, cf_clearance=$cfLen)."
 
         $result = [PSCustomObject]@{
             Session       = $session
             CfClearance   = $cfClearance
             RememberToken = $rememberToken
             UserAgent     = $userAgent
-            Source        = 'playwright'
+            Source        = "playwright:$($Mode.ToLower())"
             CapturedAt    = (Get-Date).ToUniversalTime().ToString('o')
             ExpiresAt     = (Get-Date).AddDays(30).ToUniversalTime().ToString('o')
         }
