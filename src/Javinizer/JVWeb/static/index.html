@@ -82,6 +82,11 @@
                     <button id="btn-javdb-refresh" class="full-btn" title="Refreshes the javdb session. If javdb.cookie.browser is set, reads cookies from that browser; otherwise opens Chromium to log in. Cached 30 days.">&#128273; REFRESH JAVDB SESSION</button>
                 </div>
                 <div class="status-line" id="javdb-session-status" style="font-size: 11px; opacity: 0.75; margin-top: 4px;">—</div>
+
+                <div class="checkbox-row" style="margin-top: 8px;">
+                    <label title="Translate Japanese fields (description by default) in scraped results. Set module/language/fields in jvSettings.json."><input type="checkbox" id="flag-translate" /> Translator</label>
+                </div>
+                <div class="status-line" id="translator-status" style="font-size: 11px; opacity: 0.75; margin-top: 4px;">—</div>
             </div>
 
             <div class="card" id="card-file-browser">

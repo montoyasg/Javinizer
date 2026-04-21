@@ -30,6 +30,8 @@ Add-PodeRoute -Method Post -Path '/api/scrape' -ScriptBlock {
             return
         }
 
+        $data = Apply-TranslationToScrapeData -Data $data -Settings $settings
+
         Write-PodeJsonResponse -Value @{
             source      = $file.FullName
             extractedId = $id
@@ -65,6 +67,8 @@ Add-PodeRoute -Method Post -Path '/api/manual-search' -ScriptBlock {
             Write-PodeJsonResponse -Value @{ error = $msg } -StatusCode 404
             return
         }
+
+        $data = Apply-TranslationToScrapeData -Data $data -Settings $settings
 
         Write-PodeJsonResponse -Value @{ data = $data }
     } catch {

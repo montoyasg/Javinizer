@@ -96,6 +96,8 @@ function Start-JVWebServer {
         $moduleRoot = (Get-Item $manifest).Directory.FullName
         $privateNeeded = @(
             'Convert-JVTitle.ps1'
+            'Get-TranslatedString.ps1'
+            'Invoke-GoogleWebTranslate.ps1'
         )
         foreach ($name in $privateNeeded) {
             $p = Join-Path $moduleRoot 'Private' $name

@@ -614,6 +614,39 @@
         }
     }
 
+    async function loadTranslatorStatus() {
+        const el = qs('#translator-status');
+        const cb = qs('#flag-translate');
+        if (!el || !cb) return;
+        try {
+            const res = await api('/api/settings');
+            const s = res.settings || {};
+            const on = !!s['sort.metadata.nfo.translate'];
+            const mod = s['sort.metadata.nfo.translate.module'] || '?';
+            const lang = s['sort.metadata.nfo.translate.language'] || '?';
+            cb.checked = on;
+            if (!on) {
+                el.textContent = 'Translator: OFF';
+                el.style.color = '';
+                return;
+            }
+            el.textContent = `Translator: ON — ${mod} → ${lang} · checking…`;
+            el.style.color = '';
+            const h = await api('/api/translator/health');
+            if (h.ok) {
+                el.textContent = `Translator: ON — ${mod} → ${lang} · healthy (${h.latency_ms}ms)`;
+                el.style.color = 'var(--ok, #6a6)';
+            } else {
+                const why = h.reason || h.error || 'unknown';
+                el.textContent = `Translator: ON — ${mod} → ${lang} · unhealthy: ${why}`;
+                el.style.color = 'var(--red, #c55)';
+            }
+        } catch (e) {
+            el.textContent = 'translator status unavailable';
+            el.style.color = 'var(--red, #c55)';
+        }
+    }
+
     async function manualSearch() {
         const q = qs('#manual-query').value.trim();
         if (!q) return;
@@ -711,6 +744,22 @@
 
     function bind() {
         renderAggGrid();
+
+        const translateCb = qs('#flag-translate');
+        if (translateCb) {
+            translateCb.addEventListener('change', async (e) => {
+                try {
+                    await api('/api/settings', {
+                        method: 'POST',
+                        body: { settings: { 'sort.metadata.nfo.translate': e.target.checked } },
+                    });
+                    toast(`Translator ${e.target.checked ? 'enabled' : 'disabled'}`, 'ok');
+                } catch (err) {
+                    toast('Failed to update translator: ' + err.message, 'error');
+                }
+                await loadTranslatorStatus();
+            });
+        }
 
         qs('#btn-pick-source').addEventListener('click', () =>
             openFolderPicker('input-browse-path', 'Choose source folder'));
@@ -854,6 +903,7 @@
         if (!dst.value) dst.value = DEFAULT_PATH;
         if (src.value) loadBrowse(src.value);
         loadJavdbSessionStatus();
+        loadTranslatorStatus();
     }
 
     document.addEventListener('DOMContentLoaded', init);

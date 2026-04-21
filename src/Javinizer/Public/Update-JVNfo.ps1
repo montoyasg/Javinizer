@@ -11,7 +11,25 @@ function Update-JVNfo {
         [Switch]$Preview,
 
         [Parameter()]
-        [Int]$Total
+        [Int]$Total,
+
+        [Alias('sort.metadata.nfo.translate')]
+        [Boolean]$Translate,
+
+        [Alias('sort.metadata.nfo.translate.module')]
+        [String]$TranslateModule,
+
+        [Alias('sort.metadata.nfo.translate.field')]
+        [Array]$TranslateFields,
+
+        [Alias('sort.metadata.nfo.translate.language')]
+        [String]$TranslateLanguage,
+
+        [Alias('sort.metadata.nfo.translate.deeplapikey')]
+        [String]$TranslateDeeplApiKey,
+
+        [Alias('sort.metadata.nfo.translate.keeporiginaldescription')]
+        [Boolean]$KeepOriginalDescription
     )
 
     begin {
@@ -69,7 +87,24 @@ function Update-JVNfo {
 
         $uncensorCsv = Import-Csv -Path $uncensorCsvPath
 
-        # $translateLanguage = $Settings.'sort.metadata.nfo.translate.language'
+        if (-not $PSBoundParameters.ContainsKey('Translate')) {
+            $Translate = [bool]$Settings.'sort.metadata.nfo.translate'
+        }
+        if (-not $PSBoundParameters.ContainsKey('TranslateModule')) {
+            $TranslateModule = $Settings.'sort.metadata.nfo.translate.module'
+        }
+        if (-not $PSBoundParameters.ContainsKey('TranslateFields')) {
+            $TranslateFields = $Settings.'sort.metadata.nfo.translate.field'
+        }
+        if (-not $PSBoundParameters.ContainsKey('TranslateLanguage')) {
+            $TranslateLanguage = $Settings.'sort.metadata.nfo.translate.language'
+        }
+        if (-not $PSBoundParameters.ContainsKey('TranslateDeeplApiKey')) {
+            $TranslateDeeplApiKey = $Settings.'sort.metadata.nfo.translate.deeplapikey'
+        }
+        if (-not $PSBoundParameters.ContainsKey('KeepOriginalDescription')) {
+            $KeepOriginalDescription = [bool]$Settings.'sort.metadata.nfo.translate.keeporiginaldescription'
+        }
     }
 
     process {
@@ -375,9 +410,8 @@ function Update-JVNfo {
             $aggregatedDataObject.Tag = $newTags
         }
 
-        <# if ($Translate) {
-            # Code copied from Get-JVAggregatedData
-            if ($translateLanguage) {
+        if ($Translate) {
+            if ($TranslateLanguage) {
                 $translatedObject = [PSCustomObject]@{
                     Title          = $null
                     AlternateTitle = $null
@@ -392,14 +426,14 @@ function Update-JVNfo {
                 $translatedObject.PSObject.Properties | ForEach-Object {
                     if ($_.Name -in $TranslateFields) {
                         if ($_.Name -eq 'Genre') {
-                            $_.Value = Get-TranslatedString -String ($aggregatedDataObject."$($_.Name)" -join '|') -Language $TranslateLanguage -Module $TranslateModule
+                            $_.Value = Get-TranslatedString -String ($aggregatedDataObject."$($_.Name)" -join '|') -Language $TranslateLanguage -Module $TranslateModule -TranslateDeeplApiKey $TranslateDeeplApiKey
                             $genres = @()
                             $rawGenres = $_.Value -split '\|'
                             foreach ($genre in $rawGenres) {
                                 $genres += ($genre).Trim()
                             }
                         } else {
-                            $_.Value = Get-TranslatedString -String $aggregatedDataObject."$($_.Name)" -Language $TranslateLanguage -Module $TranslateModule
+                            $_.Value = Get-TranslatedString -String $aggregatedDataObject."$($_.Name)" -Language $TranslateLanguage -Module $TranslateModule -TranslateDeeplApiKey $TranslateDeeplApiKey
                         }
                         if ($null -ne $_.Value -and ($_.Value).Trim() -ne '') {
                             if ($_.Name -eq 'Genre') {
@@ -420,7 +454,7 @@ function Update-JVNfo {
             } else {
                 Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$($aggregatedDataObject.Id)] [$($MyInvocation.MyCommand.Name)] Translation language is missing"
             }
-        } #>
+        }
 
         try {
             $updatedNfo = $aggregatedDataObject | Get-JVNfo -ActressLanguageJa:$Settings.'sort.metadata.nfo.actresslanguageja' -NameOrder:$Settings.'sort.metadata.nfo.firstnameorder' -AltNameRole:$Settings.'sort.metadata.nfo.altnamerole' -ErrorAction Stop

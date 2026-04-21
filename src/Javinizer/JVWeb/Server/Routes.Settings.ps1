@@ -6,6 +6,9 @@ Add-PodeRoute -Method Get -Path '/api/settings' -ScriptBlock {
             'sort.format.file'
             'sort.format.groupactress'
             'sort.metadata.nfo.unknownactress'
+            'sort.metadata.nfo.translate'
+            'sort.metadata.nfo.translate.module'
+            'sort.metadata.nfo.translate.language'
             'web.sort.recurse'
             'web.sort.update'
             'web.sort.force'
@@ -41,6 +44,9 @@ Add-PodeRoute -Method Post -Path '/api/settings' -ScriptBlock {
             'sort.format.file'
             'sort.format.groupactress'
             'sort.metadata.nfo.unknownactress'
+            'sort.metadata.nfo.translate'
+            'sort.metadata.nfo.translate.module'
+            'sort.metadata.nfo.translate.language'
             'web.sort.recurse'
             'web.sort.update'
             'web.sort.force'
@@ -96,5 +102,16 @@ Add-PodeRoute -Method Post -Path '/api/settings' -ScriptBlock {
     } catch {
         Write-PodeHost "settings POST error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red
         Write-PodeJsonResponse -Value @{ error = "$($PSItem.Exception.Message)" } -StatusCode 500
+    }
+}
+
+Add-PodeRoute -Method Get -Path '/api/translator/health' -ScriptBlock {
+    try {
+        $settings = Get-PodeState -Name 'settings'
+        $res = Test-JVTranslator -Settings $settings
+        Write-PodeJsonResponse -Value $res
+    } catch {
+        Write-PodeHost "translator health error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red
+        Write-PodeJsonResponse -Value @{ ok = $false; error = "$($PSItem.Exception.Message)" } -StatusCode 500
     }
 }
