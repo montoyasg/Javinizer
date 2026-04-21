@@ -513,10 +513,13 @@ function JavdbSessionPanel({ s, set, addToast }) {
   );
 }
 
+const TRANSLATE_DEFAULT_FIELDS = ['Title', 'Description', 'Series', 'Maker'];
+
 function TranslatorPanel({ addToast }) {
   const [enabled, setEnabled] = useState(null); // null=loading
   const [modName, setModName] = useState('');
   const [language, setLanguage] = useState('');
+  const [fields, setFields] = useState([]);
   const [health, setHealth] = useState(null); // null=idle, {checking}, or api result
   const [busy, setBusy] = useState(false);
 
@@ -527,6 +530,11 @@ function TranslatorPanel({ addToast }) {
       const on = !!srv['sort.metadata.nfo.translate'];
       setModName(srv['sort.metadata.nfo.translate.module'] || '?');
       setLanguage(srv['sort.metadata.nfo.translate.language'] || '?');
+      const rawFields = srv['sort.metadata.nfo.translate.field'];
+      const parsedFields = Array.isArray(rawFields)
+        ? rawFields
+        : (typeof rawFields === 'string' && rawFields ? rawFields.split(/[,\s]+/).filter(Boolean) : []);
+      setFields(parsedFields);
       setEnabled(on);
       if (!on) { setHealth(null); return; }
       setHealth({ checking: true });
@@ -551,13 +559,16 @@ function TranslatorPanel({ addToast }) {
       const update = { 'sort.metadata.nfo.translate': want };
       if (want) {
         update['sort.metadata.nfo.translate.module'] = 'google_web';
+        update['sort.metadata.nfo.translate.field'] = TRANSLATE_DEFAULT_FIELDS;
       }
       await api('/api/settings', {
         method: 'POST',
         body: { settings: update },
       });
       addToast?.(
-        want ? 'Translator enabled (module set to google_web)' : 'Translator disabled',
+        want
+          ? `Translator enabled (module: google_web; fields: ${TRANSLATE_DEFAULT_FIELDS.join(', ')})`
+          : 'Translator disabled',
         'ok'
       );
     } catch (err) {
@@ -575,12 +586,13 @@ function TranslatorPanel({ addToast }) {
     health?.ok        ? 'var(--green)' :
                         'var(--red)';
 
+  const fieldsSuffix = fields.length ? ` · fields: ${fields.join(', ')}` : '';
   const statusText =
     enabled == null   ? 'checking…' :
     !enabled          ? 'OFF' :
-    health?.checking  ? `ON — ${modName} → ${language} · checking…` :
-    health?.ok        ? `ON — ${modName} → ${language} · healthy (${health.latency_ms}ms)` :
-                        `ON — ${modName} → ${language} · unhealthy: ${health?.reason || health?.error || 'unknown'}`;
+    health?.checking  ? `ON — ${modName} → ${language}${fieldsSuffix} · checking…` :
+    health?.ok        ? `ON — ${modName} → ${language}${fieldsSuffix} · healthy (${health.latency_ms}ms)` :
+                        `ON — ${modName} → ${language}${fieldsSuffix} · unhealthy: ${health?.reason || health?.error || 'unknown'}`;
 
   return (
     <div style={{width:'100%', display:'flex', flexDirection:'column', gap:6, paddingTop:6, borderTop:'1px solid var(--border)'}}>
@@ -608,7 +620,7 @@ function TranslatorPanel({ addToast }) {
       </div>
 
       <div style={{fontSize:10, color:'var(--text-muted)', paddingLeft:2, fontStyle:'italic', lineHeight:1.5}}>
-        Enabling forces module to <code>google_web</code> (native PowerShell, no Python required). Target language is read from <code>jvSettings.json</code> (<code>sort.metadata.nfo.translate.language</code>, default <code>en</code>).
+        Enabling forces module to <code>google_web</code> (native PowerShell, no Python required) and fields to <code>Title, Description, Series, Maker</code>. Target language is read from <code>jvSettings.json</code> (<code>sort.metadata.nfo.translate.language</code>, default <code>en</code>).
       </div>
     </div>
   );
