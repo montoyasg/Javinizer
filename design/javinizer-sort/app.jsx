@@ -462,6 +462,10 @@ function JavdbSessionPanel({ s, set, addToast }) {
         </div>
       </div>
 
+      <div style={{fontSize:10, color:'var(--text-muted)', paddingLeft:2, fontStyle:'italic'}}>
+        Scrapes that return 403 Forbidden are automatically retried through Chromium so TLS/HTTP2 fingerprint matches the session.
+      </div>
+
       {isPaste && (
         <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))', gap:8, paddingLeft:2, paddingTop:4}}>
           <div style={{display:'flex', flexDirection:'column', gap:3}}>

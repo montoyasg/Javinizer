@@ -76,6 +76,21 @@ function Invoke-JavdbRequest {
                 if (-not $hasSession) {
                     throw "JavdbAuthRequired: 403 on [$Uri]. Set javdb.cookie.session or run Get-JavdbSession -Force."
                 }
+
+                # Retries exhausted with a valid session. .NET's TLS/HTTP2 fingerprint
+                # doesn't match what Cloudflare bound the cookie to, so retry once
+                # through a short-lived Playwright Chromium which uses the exact same
+                # network stack that originally issued cf_clearance.
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Info -Message "[$($MyInvocation.MyCommand.Name)] Retries exhausted on 403 for [$Uri]; falling back to Playwright browser fetch."
+                try {
+                    $browserResult = Invoke-JavdbBrowserFetch -Uri $Uri -WebSession $WebSession -UserAgent $UserAgent
+                    if ($browserResult) {
+                        return $browserResult
+                    }
+                } catch {
+                    Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$($MyInvocation.MyCommand.Name)] Playwright fallback also failed for [$Uri]: $PSItem"
+                    throw "Javdb 403: HTTP fallback and Playwright fallback both rejected. Original: $($lastError.Exception.Message) | Browser: $PSItem"
+                }
             }
 
             throw $lastError
