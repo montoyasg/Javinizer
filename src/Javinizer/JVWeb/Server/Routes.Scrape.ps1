@@ -114,18 +114,55 @@ Add-PodeRoute -Method Post -Path '/api/screens' -ScriptBlock {
 
 Add-PodeRoute -Method Post -Path '/api/javdb/session/refresh' -ScriptBlock {
     try {
-        $info = Get-JavdbSession -Force -PassThru
+        $settings = Get-PodeState -Name 'settings'
+        $info = Get-JavdbSession -Force -Settings $settings -PassThru
         if (-not $info -or -not $info.Session) {
             Write-PodeJsonResponse -Value @{ error = 'Session capture returned no cookie.' } -StatusCode 500
             return
         }
+        $src = $null
+        try { $src = $info.Source } catch {}
         Write-PodeJsonResponse -Value @{
             status     = 'ok'
+            source     = $src
             capturedAt = $info.CapturedAt
             expiresAt  = $info.ExpiresAt
         }
     } catch {
         Write-PodeHost "javdb session refresh error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red
+        Write-PodeJsonResponse -Value @{ error = "$($PSItem.Exception.Message)" } -StatusCode 500
+    }
+}
+
+Add-PodeRoute -Method Get -Path '/api/javdb/session/status' -ScriptBlock {
+    try {
+        $cachePath = Get-JavdbSessionCachePath
+        $present = $false
+        $source = $null
+        $capturedAt = $null
+        $expiresAt = $null
+        if (Test-Path -LiteralPath $cachePath) {
+            try {
+                $cached = Get-Content -LiteralPath $cachePath -Raw | ConvertFrom-Json
+                if ($cached -is [Array]) {
+                    $cached = @($cached | Where-Object { $_ -and $_.PSObject.Properties['Session'] -and $_.Session })[-1]
+                }
+                if ($cached -and $cached.Session) {
+                    $present = $true
+                    try { $source = $cached.Source } catch {}
+                    try { $capturedAt = $cached.CapturedAt } catch {}
+                    try { $expiresAt = $cached.ExpiresAt } catch {}
+                }
+            } catch {}
+        }
+        Write-PodeJsonResponse -Value @{
+            present    = $present
+            source     = $source
+            capturedAt = $capturedAt
+            expiresAt  = $expiresAt
+        }
+    } catch {
+        Write-PodeHost "javdb session status error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red
         Write-PodeJsonResponse -Value @{ error = "$($PSItem.Exception.Message)" } -StatusCode 500
     }
 }

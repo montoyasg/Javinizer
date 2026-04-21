@@ -35,7 +35,7 @@ RUN set -eux \
 
 RUN pwsh -NoProfile -Command "Set-PSRepository PSGallery -InstallationPolicy Trusted; Install-Module Pode -Scope AllUsers -Force"
 
-RUN pip3 install --no-cache-dir pillow requests
+RUN pip3 install --no-cache-dir pillow requests browser_cookie3
 
 RUN dotnet new console -o /opt/playwright \
     && dotnet add /opt/playwright package Microsoft.Playwright \

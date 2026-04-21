@@ -194,7 +194,10 @@ function Get-JavdbActress {
         [Object]$Webrequest,
 
         [Parameter(Position = 1)]
-        [Microsoft.PowerShell.Commands.WebRequestSession]$WebSession
+        [Microsoft.PowerShell.Commands.WebRequestSession]$WebSession,
+
+        [Parameter()]
+        [String]$UserAgent
     )
 
     process {
@@ -218,7 +221,9 @@ function Get-JavdbActress {
             $thumbUrl = $null
             try {
                 $actressUrl = "https://javdb.com/actors/$($actress.Id)"
-                $resp = Invoke-JavdbRequest -Uri $actressUrl -WebSession $WebSession
+                $actressReqParams = @{ Uri = $actressUrl; WebSession = $WebSession }
+                if ($UserAgent) { $actressReqParams['UserAgent'] = $UserAgent }
+                $resp = Invoke-JavdbRequest @actressReqParams
                 $thumbUrl = ($resp.Content | Select-String -Pattern '<span class="avatar" style="background-image: url\((.*)\)"><\/span>').Matches.Groups[1].Value
             } catch {
                 Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] Could not fetch thumb for actress [$($actress.Id)]: $PSItem"

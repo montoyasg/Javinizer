@@ -579,16 +579,38 @@
         const btn = qs('#btn-javdb-refresh');
         const original = btn.textContent;
         btn.disabled = true;
-        btn.textContent = 'Opening Chromium — log in…';
+        btn.textContent = 'Refreshing javdb session…';
         try {
             const res = await api('/api/javdb/session/refresh', { method: 'POST' });
             const exp = res.expiresAt ? new Date(res.expiresAt).toLocaleDateString() : 'unknown';
-            toast(`javdb session captured (expires ${exp})`, 'ok');
+            const via = res.source ? ` via ${res.source}` : '';
+            toast(`javdb session refreshed${via} (expires ${exp})`, 'ok');
+            loadJavdbSessionStatus();
         } catch (e) {
             toast('javdb session refresh failed: ' + e.message, 'error');
         } finally {
             btn.disabled = false;
             btn.textContent = original;
+        }
+    }
+
+    async function loadJavdbSessionStatus() {
+        const el = qs('#javdb-session-status');
+        if (!el) return;
+        try {
+            const res = await api('/api/javdb/session/status');
+            if (!res.present) {
+                el.textContent = 'No javdb session cached';
+                el.style.color = 'var(--red, #c55)';
+                return;
+            }
+            const exp = res.expiresAt ? new Date(res.expiresAt).toLocaleDateString() : '?';
+            const src = res.source || 'unknown';
+            el.textContent = `cached via ${src} · expires ${exp}`;
+            el.style.color = '';
+        } catch (e) {
+            el.textContent = 'status unavailable';
+            el.style.color = 'var(--red, #c55)';
         }
     }
 
@@ -831,6 +853,7 @@
         if (!src.value) src.value = initialPath || DEFAULT_PATH;
         if (!dst.value) dst.value = DEFAULT_PATH;
         if (src.value) loadBrowse(src.value);
+        loadJavdbSessionStatus();
     }
 
     document.addEventListener('DOMContentLoaded', init);

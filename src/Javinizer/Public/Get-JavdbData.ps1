@@ -8,7 +8,10 @@ function Get-JavdbData {
         [String]$Session,
 
         [Parameter()]
-        [String]$CfClearance
+        [String]$CfClearance,
+
+        [Parameter()]
+        [String]$UserAgent
     )
 
     process {
@@ -33,9 +36,12 @@ function Get-JavdbData {
             }
         }
 
+        $reqParams = @{ Uri = $Url; WebSession = $loginSession }
+        if ($UserAgent) { $reqParams['UserAgent'] = $UserAgent }
+
         try {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] Performing [GET] on URL [$Url]"
-            $webRequest = Invoke-JavdbRequest -Uri $Url -WebSession $loginSession
+            $webRequest = Invoke-JavdbRequest @reqParams
         } catch {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Error [GET] on URL [$Url]: $PSItem" -Action 'Continue'
             return
@@ -52,7 +58,7 @@ function Get-JavdbData {
             Director      = Get-JavdbDirector -WebRequest $webRequest
             Maker         = Get-JavdbMaker -WebRequest $webRequest
             Series        = Get-JavdbSeries -WebRequest $webRequest
-            Actress       = Get-JavdbActress -WebRequest $webRequest -WebSession $loginSession
+            Actress       = Get-JavdbActress -WebRequest $webRequest -WebSession $loginSession -UserAgent $UserAgent
             Genre         = Get-JavdbGenre -WebRequest $webRequest
             CoverUrl      = Get-JavdbCoverUrl -WebRequest $webRequest
             ScreenshotUrl = Get-JavdbScreenshotUrl -WebRequest $webRequest

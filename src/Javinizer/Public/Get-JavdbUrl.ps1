@@ -11,6 +11,9 @@ function Get-JavdbUrl {
         [String]$CfClearance,
 
         [Parameter()]
+        [String]$UserAgent,
+
+        [Parameter()]
         [Switch]$AllResults
     )
 
@@ -36,9 +39,12 @@ function Get-JavdbUrl {
             }
         }
 
+        $reqParams = @{ Uri = $searchUrl; WebSession = $loginSession }
+        if ($UserAgent) { $reqParams['UserAgent'] = $UserAgent }
+
         try {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Performing [GET] on URL [$searchUrl]"
-            $webRequest = Invoke-JavdbRequest -Uri $searchUrl -WebSession $loginSession
+            $webRequest = Invoke-JavdbRequest @reqParams
         } catch {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Error on [GET] [$searchUrl]: $PSItem" -Action 'Continue'
             return

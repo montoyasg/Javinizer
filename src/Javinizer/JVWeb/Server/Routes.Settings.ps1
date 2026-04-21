@@ -11,6 +11,10 @@ Add-PodeRoute -Method Get -Path '/api/settings' -ScriptBlock {
             'web.sort.force'
             'web.sort.src'
             'web.sort.dest'
+            'javdb.cookie.browser'
+            'javdb.cookie.session'
+            'javdb.cookie.cf_clearance'
+            'javdb.cookie.user_agent'
         )
 
         $settings = Get-PodeState -Name 'settings'
@@ -42,6 +46,10 @@ Add-PodeRoute -Method Post -Path '/api/settings' -ScriptBlock {
             'web.sort.force'
             'web.sort.src'
             'web.sort.dest'
+            'javdb.cookie.browser'
+            'javdb.cookie.session'
+            'javdb.cookie.cf_clearance'
+            'javdb.cookie.user_agent'
         )
 
         $body = $WebEvent.Data

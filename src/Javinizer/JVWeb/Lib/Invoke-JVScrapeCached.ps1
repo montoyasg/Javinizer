@@ -83,27 +83,31 @@ function Invoke-JavdbBranch {
     if (-not $sessionInfo -or -not $sessionInfo.Session) { return $null }
     $cookie = $sessionInfo.Session
     $cfClear = $sessionInfo.CfClearance
+    $ua = $null
+    try { $ua = $sessionInfo.UserAgent } catch {}
 
     try {
         if ($Url) {
-            return Get-JavdbData -Url $Url -Session $cookie -CfClearance $cfClear -ErrorAction Stop
+            return Get-JavdbData -Url $Url -Session $cookie -CfClearance $cfClear -UserAgent $ua -ErrorAction Stop
         }
 
-        $urlObj = Get-JavdbUrl -Id $Id -Session $cookie -CfClearance $cfClear -ErrorAction SilentlyContinue
+        $urlObj = Get-JavdbUrl -Id $Id -Session $cookie -CfClearance $cfClear -UserAgent $ua -ErrorAction SilentlyContinue
         if (-not $urlObj) { return $null }
-        return Get-JavdbData -Url $urlObj.En -Session $cookie -CfClearance $cfClear -ErrorAction Stop
+        return Get-JavdbData -Url $urlObj.En -Session $cookie -CfClearance $cfClear -UserAgent $ua -ErrorAction Stop
     } catch {
         if ("$PSItem" -match 'JavdbAuthRequired') {
             try {
                 Write-PodeHost "javdb session rejected (403). Re-capturing..." -ForegroundColor Yellow
-                $refreshed = Get-JavdbSession -Force -PassThru
+                $refreshed = Get-JavdbSession -Force -Settings $Settings -PassThru
                 if ($refreshed -and $refreshed.Session) {
+                    $rUa = $null
+                    try { $rUa = $refreshed.UserAgent } catch {}
                     if ($Url) {
-                        return Get-JavdbData -Url $Url -Session $refreshed.Session -CfClearance $refreshed.CfClearance -ErrorAction Stop
+                        return Get-JavdbData -Url $Url -Session $refreshed.Session -CfClearance $refreshed.CfClearance -UserAgent $rUa -ErrorAction Stop
                     }
-                    $urlObj = Get-JavdbUrl -Id $Id -Session $refreshed.Session -CfClearance $refreshed.CfClearance -ErrorAction SilentlyContinue
+                    $urlObj = Get-JavdbUrl -Id $Id -Session $refreshed.Session -CfClearance $refreshed.CfClearance -UserAgent $rUa -ErrorAction SilentlyContinue
                     if ($urlObj) {
-                        return Get-JavdbData -Url $urlObj.En -Session $refreshed.Session -CfClearance $refreshed.CfClearance -ErrorAction Stop
+                        return Get-JavdbData -Url $urlObj.En -Session $refreshed.Session -CfClearance $refreshed.CfClearance -UserAgent $rUa -ErrorAction Stop
                     }
                 }
             } catch {

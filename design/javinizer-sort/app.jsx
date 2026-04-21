@@ -80,6 +80,10 @@ function buildFullSettingsPayload(s) {
     'web.sort.force': !!s.force,
     'web.sort.src': s.src || '',
     'web.sort.dest': s.dest || '',
+    'javdb.cookie.browser': s.javdbCookieBrowser ?? '',
+    'javdb.cookie.session': s.javdbCookieSession ?? '',
+    'javdb.cookie.cf_clearance': s.javdbCookieCfClearance ?? '',
+    'javdb.cookie.user_agent': s.javdbCookieUserAgent ?? '',
   };
 }
 
@@ -96,6 +100,10 @@ function parseServerSettings(srv) {
     force: !!srv['web.sort.force'],
     src: srv['web.sort.src'] ?? '',
     dest: srv['web.sort.dest'] ?? '',
+    javdbCookieBrowser: srv['javdb.cookie.browser'] ?? '',
+    javdbCookieSession: srv['javdb.cookie.session'] ?? '',
+    javdbCookieCfClearance: srv['javdb.cookie.cf_clearance'] ?? '',
+    javdbCookieUserAgent: srv['javdb.cookie.user_agent'] ?? '',
   };
 }
 
@@ -366,9 +374,134 @@ function TokenInput({ value, onChange, tokens, placeholder }) {
   );
 }
 
+// ─── Javdb session panel ──────────────────────────────────────────────────────
+
+const JAVDB_COOKIE_SOURCES = [
+  { value: '',         label: 'Playwright (default)', desc: 'Open Chromium and log in manually' },
+  { value: 'chrome',   label: 'Chrome',               desc: 'Read cookies from your local Chrome profile' },
+  { value: 'chromium', label: 'Chromium',             desc: 'Read cookies from your local Chromium profile' },
+  { value: 'edge',     label: 'Edge',                 desc: 'Read cookies from your local Edge profile' },
+  { value: 'brave',    label: 'Brave',                desc: 'Read cookies from your local Brave profile' },
+  { value: 'firefox',  label: 'Firefox',              desc: 'Read cookies from your local Firefox profile' },
+  { value: 'paste',    label: 'Paste cookies manually', desc: 'Enter _jdb_session / cf_clearance / UA below' },
+];
+
+function JavdbSessionPanel({ s, set, addToast }) {
+  const u = (k, v) => set(p => ({ ...p, [k]: v }));
+  const [status, setStatus] = useState(null);       // null=loading, {}=loaded
+  const [refreshing, setRefreshing] = useState(false);
+  const [showSecrets, setShowSecrets] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const res = await api('/api/javdb/session/status');
+      setStatus(res || {});
+    } catch {
+      setStatus({ error: true });
+    }
+  }, []);
+
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const res = await api('/api/javdb/session/refresh', { method: 'POST' });
+      const exp = res.expiresAt ? new Date(res.expiresAt).toLocaleDateString() : '?';
+      const src = res.source || 'unknown';
+      setStatus({ present: true, source: src, capturedAt: res.capturedAt, expiresAt: res.expiresAt });
+      addToast?.(`✓ javdb session refreshed via ${src} (expires ${exp})`, 'ok');
+    } catch (e) {
+      addToast?.(`javdb refresh failed: ${e.message}`, 'error');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const choice = s.javdbCookieBrowser || '';
+  const isPaste = choice === 'paste';
+  const dot = status?.present ? 'var(--green)' : 'var(--red)';
+  const expText = status?.expiresAt ? new Date(status.expiresAt).toLocaleDateString() : null;
+
+  return (
+    <div style={{width:'100%', display:'flex', flexDirection:'column', gap:6, paddingTop:6, borderTop:'1px solid var(--border)'}}>
+      <div style={{display:'flex', alignItems:'center', gap:12, flexWrap:'wrap'}}>
+        <span style={S.label}>Javdb session</span>
+
+        <div style={{display:'flex', flexDirection:'column', gap:3, minWidth:220}}>
+          <label style={{...S.label, textTransform:'none', fontWeight:400, color:'var(--text-muted)', letterSpacing:0}}>Cookie source</label>
+          <select
+            value={choice}
+            onChange={e => u('javdbCookieBrowser', e.target.value)}
+            style={{...S.field, fontSize:12}}
+            title="Where to get _jdb_session + cf_clearance cookies"
+          >
+            {JAVDB_COOKIE_SOURCES.map(o => (
+              <option key={o.value || 'default'} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="Run the chosen cookie source and cache the result"
+          style={{...S.btn, background: refreshing ? 'var(--surface-3)' : 'var(--accent-dim)', borderColor:'var(--accent)', color:'var(--accent-light)', cursor: refreshing ? 'default' : 'pointer', opacity: refreshing ? 0.6 : 1}}
+        >{refreshing ? '…refreshing' : '🔑 Refresh Javdb session'}</button>
+
+        <div style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'var(--text-muted)'}}>
+          <span style={{width:8, height:8, borderRadius:'50%', background:dot, flexShrink:0}} />
+          {status == null && <span>checking…</span>}
+          {status && !status.present && <span>no session cached</span>}
+          {status && status.present && <span>cached via {status.source || 'unknown'}{expText ? ` · expires ${expText}` : ''}</span>}
+        </div>
+      </div>
+
+      {isPaste && (
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))', gap:8, paddingLeft:2, paddingTop:4}}>
+          <div style={{display:'flex', flexDirection:'column', gap:3}}>
+            <label style={{...S.label, textTransform:'none', fontWeight:400, color:'var(--text-muted)', letterSpacing:0}}>_jdb_session</label>
+            <input
+              type={showSecrets ? 'text' : 'password'}
+              value={s.javdbCookieSession || ''}
+              onChange={e=>u('javdbCookieSession', e.target.value)}
+              placeholder="paste cookie value"
+              style={{...S.field, fontFamily:'var(--mono)', fontSize:11}}
+            />
+          </div>
+          <div style={{display:'flex', flexDirection:'column', gap:3}}>
+            <label style={{...S.label, textTransform:'none', fontWeight:400, color:'var(--text-muted)', letterSpacing:0}}>cf_clearance</label>
+            <input
+              type={showSecrets ? 'text' : 'password'}
+              value={s.javdbCookieCfClearance || ''}
+              onChange={e=>u('javdbCookieCfClearance', e.target.value)}
+              placeholder="paste cookie value"
+              style={{...S.field, fontFamily:'var(--mono)', fontSize:11}}
+            />
+          </div>
+          <div style={{display:'flex', flexDirection:'column', gap:3}}>
+            <label style={{...S.label, textTransform:'none', fontWeight:400, color:'var(--text-muted)', letterSpacing:0}}>User-Agent</label>
+            <input
+              type="text"
+              value={s.javdbCookieUserAgent || ''}
+              onChange={e=>u('javdbCookieUserAgent', e.target.value)}
+              placeholder="Mozilla/5.0 (Windows NT 10.0…) Chrome/120.0.0.0 Safari/537.36"
+              style={{...S.field, fontFamily:'var(--mono)', fontSize:11}}
+            />
+          </div>
+          <label style={{display:'flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-muted)', cursor:'pointer', userSelect:'none'}}>
+            <input type="checkbox" checked={showSecrets} onChange={e=>setShowSecrets(e.target.checked)} style={{accentColor:'var(--accent)'}} />
+            Show values
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Sort Settings bar ────────────────────────────────────────────────────────
 
-function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved }) {
+function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved, addToast }) {
   const u = (k, v) => set(p => ({ ...p, [k]: v }));
   const [pickerTarget, setPickerTarget] = useState(null); // 'src' | 'dest'
   const dirty = useMemo(
@@ -523,6 +656,7 @@ function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved }
           )}
         </div>
       </div>
+      <JavdbSessionPanel s={s} set={set} addToast={addToast} />
       {pickerTarget && (
         <FolderPickerModal
           initial={s[pickerTarget] || '/Volumes'}
@@ -1209,7 +1343,7 @@ function App() {
   return (
     <div style={{display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg)', color:'var(--text)', fontFamily:'var(--sans)', overflow:'hidden'}}>
       <Header showSettings={showSettings} setShowSettings={setShowSettings} onHelp={()=>setShowHelp(true)} onSortAll={()=>setShowSortAll(true)} videoCount={videos.length} />
-      {showSettings && <SortSettings s={settings} set={setSettings} serverSettings={serverSettings} onSaveDefaults={handleSaveDefaults} onResetToSaved={handleResetToSaved} />}
+      {showSettings && <SortSettings s={settings} set={setSettings} serverSettings={serverSettings} onSaveDefaults={handleSaveDefaults} onResetToSaved={handleResetToSaved} addToast={add} />}
       <div style={{flex:1, display:'flex', overflow:'hidden'}}>
         {/* Sidebar */}
         <div style={{width:268, flexShrink:0, borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', overflow:'hidden'}}>
