@@ -5,15 +5,10 @@
 .DS_Store
 
 Archive/
-docs/
-media/
 src/Tests/
 
 *.md
 LICENSE
-azure-pipelines.yml
-actions_bootstrap.ps1
-requirements.psd1
 
 Dockerfile-cli
 docker-entrypoint-cli.sh

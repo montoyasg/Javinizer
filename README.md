@@ -32,13 +32,8 @@
 <p align="center">
   <a href="#features"><strong>Features</strong></a> •
   <a href="#getting-started"><strong>Getting Started</strong></a> •
-  <a href="#example-output"><strong>Examples</strong></a> •
-  <a href="https://javinizer.gitbook.io/docs" target="_blank"><strong>Documentation</strong></a>
+  <a href="#example-output"><strong>Examples</strong></a>
 
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/javinizer/Javinizer/master/media/demo.gif" width="1280">
 </p>
 
 ## Features
@@ -52,8 +47,6 @@
 -   **You own the data**. Metadata _.nfo_ files are created for each JAV file to be read by a media library application. Contrary to a media library metadata plugin, if an online scraper suddenly disappears, you still keep your metadata.
 
 ## Getting Started
-
-View the full Javinizer installation and usage documentation on [GitBook](https://javinizer.gitbook.io/docs/).
 
 ### Prerequisites
 
