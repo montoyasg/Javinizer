@@ -1,129 +1,45 @@
 <h1 align="center">
-  Javinizer (JAV Organizer)
+  Javinizer-NG (JAV Organizer)
   <br>
 </h1>
 
-<h4 align="center"><strong>A commandline and web GUI based PowerShell module used to scrape metadata and sort your local Japanese Adult Video (JAV) files into a media library compatible format.</strong></h4>
+<h4 align="center"><strong>A Dockerized web application that scrapes metadata and sorts local Japanese Adult Video (JAV) files into a media-library-compatible layout. Fork of the original PowerShell Javinizer — now ships as a single container with a React sort workspace, a Pode/PowerShell backend, Chromium-backed javdb fallback, a built-in Google Translate module, and a noVNC desktop for first-run javdb login.</strong></h4>
 
 <br>
 
 <p align="center">
-  <a href="https://github.com/javinizer/Javinizer/releases">
-    <img src="https://img.shields.io/github/v/release/javinizer/Javinizer?include_prereleases&style=plastic&label=release"
-         alt="GitHub">
-  </a>
-  <a href="https://www.powershellgallery.com/packages/Javinizer/"><img src="https://img.shields.io/powershellgallery/dt/javinizer?color=red&label=psgallery&style=plastic"
-  alt="PSGallery">
-  </a>
-  <a href="https://hub.docker.com/r/javinizer/javinizer">
-      <img src="https://img.shields.io/docker/pulls/javinizer/javinizer?style=plastic&color=red&label=docker"
+  <a href="https://hub.docker.com/r/montoyasg/javinizer-ng">
+      <img src="https://img.shields.io/docker/pulls/montoyasg/javinizer-ng?style=plastic&color=red&label=docker"
       alt="Docker">
   </a>
-  <a href="https://discord.gg/Pds7xCpzpc">
-    <img src="https://img.shields.io/discord/608449512352120834?color=brightgreen&style=plastic&label=discord"
-    alt="Discord">
-  </a>
-    <a href="https://github.com/javinizer/Javinizer/compare/dev">
-    <img src="https://img.shields.io/github/commits-since/javinizer/javinizer/latest/dev?style=plastic"
-    alt="Commits">
+  <a href="https://github.com/montoyasg/javinizer-ng/actions/workflows/docker-build-publish.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/montoyasg/javinizer-ng/docker-build-publish.yml?branch=master&style=plastic&label=build"
+         alt="Build">
   </a>
 </p>
 
 <p align="center">
   <a href="#features"><strong>Features</strong></a> •
   <a href="#getting-started"><strong>Getting Started</strong></a> •
+  <a href="#web-gui"><strong>Web GUI</strong></a> •
   <a href="#example-output"><strong>Examples</strong></a>
 
 </p>
 
 ## Features
 
--   **Highly customizable**. An assortment of scrapers are available for you to mix-and-match metadata with. Scrapers sources include sites such as Javlibrary, R18, Dmm (Fanza), JavBus, Jav321, AVEntertainment, MGStage, and DLGetchu. Various _.csv_ settings files are also provided to customize your metadata even further.
-
--   **Flexible file detection**. Multiple methods are provided to detect your local JAV files such as the built-in file matcher as well as a customizable regex string.
-
--   **Multi-language support**. Scraper sources provide English, Japanese, and occasionally Chinese language support. Machine translation modules are also available to translate individual metadata fields of your choice.
-
--   **You own the data**. Metadata _.nfo_ files are created for each JAV file to be read by a media library application. Contrary to a media library metadata plugin, if an online scraper suddenly disappears, you still keep your metadata.
+-   **Multi-scraper aggregation.** Metadata mixed and matched from R18.dev, Javlibrary, DMM/Fanza, JavBus, Jav321, Javdb, MGStage, AVEntertainment, DLGetchu, and TokyoHot. Per-field source priority is configurable via `jvSettings.json`.
+-   **Javdb with Cloudflare bypass.** Javdb is driven through Microsoft.Playwright + Chromium. A session cookie (`_jdb_session` + `cf_clearance` when present) is captured on first use, persisted under `~/.config/Javinizer/`, and reused for ~30 days. Anonymous capture is zero-interaction; logged-in capture can be completed once through the bundled noVNC desktop.
+-   **Built-in translator.** A pure-PowerShell `google_web` module scrapes the mobile Google Translate endpoint (no API key, no Python deps) to localize Title/Description/Series/Maker and Japanese actress names into your preferred language. Legacy `googletrans`, `google_trans_new`, and `deepl` modules remain selectable for users with those Python packages installed.
+-   **React sort workspace.** A single-page React UI (served at `/next/`) for browsing source folders, live scrape previews, manual URL/ID search, poster image picker, actress-name editing, bulk tree dry-run, and per-row sort commits. The classic HTML/JS UI is still mounted at `/` for anyone who preferred it.
+-   **Container-first deployment.** One multi-arch Docker image (`linux/amd64` + `linux/arm64`) bundles PowerShell 7.4, Pode, the Javinizer module, Chromium via Playwright, Python Pillow (for poster cropping), and an Xvfb + Fluxbox + noVNC desktop so javdb's one-time login works without an X server on the host.
+-   **You own the data.** Per-movie `.nfo` files + covers + thumbs + actress portraits are written alongside the renamed video. Nothing is locked inside a media-server database.
 
 ## Getting Started
 
-### Prerequisites
+### Docker (recommended)
 
-To run Javinizer, you will need to install following:
-
-**NOTE**: You will need to add Python and MediaInfo to your system PATH. Windows calls `python`, while Unix/MacOS calls `python3`.
-
--   [PowerShell 7](https://github.com/PowerShell/PowerShell)
--   [Python 3](https://www.python.org/downloads/)
-    -   [Pillow](https://pypi.org/project/Pillow/)
-    -   [googletrans >= 4.0.0rc1](https://pypi.org/project/googletrans/) or [google_trans_new](https://pypi.org/project/google-trans-new/)
--   [MediaInfo](https://mediaarea.net/en/MediaInfo/Download) (Optional)
-
-```python
-# Install the python modules using pip. If running Unix/MacOS, use pip3/python3
-> pip install pillow
-> pip install googletrans==4.0.0rc1
-> pip install google_trans_new
-```
-
-### Installation
-
-After installing the required prerequisites, run the following command in an administrator PowerShell 7 (pwsh.exe) console to install the Javinizer module. If this is your first time using PowerShell, you may run into some prompts about security policies. Follow the instructions given in the prompts to unrestrict the code.
-
-```powershell
-# Install the module from PowerShell gallery
-> Install-Module Javinizer
-
-# Check that the module has been installed; if error, restart your console
-> Javinizer -v
-```
-
-### Quick start (CLI)
-
-Here are some common commands that you can run with Javinizer:
-
-```powershell
-# Run a command to sort your JAV files using default settings
-> Javinizer -Path "C:\JAV\Unsorted" -DestinationPath "C:\JAV\Sorted"
-
-# Run a command to sort your JAV files while searching folders recursively (within the folders)
-> Javinizer -Path "C:\JAV\Unsorted" -DestinationPath "C:\JAV\Sorted" -Recurse
-
-# Run a command to sort a JAV file using direct URLs
-> Javinizer -Path "C:\JAV\Unsorted\IPX-535.mp4" -Url 'https://www.javlibrary.com/en/?v=javmeza7s4', 'https://www.r18.com/videos/vod/movies/detail/-/id=ipx00535/'
-
-# Run a command to find metadata
-> Javinizer -Find "ABP-420" -Javlibrary
-
-# Run a command to find metadata and aggregate it according to your settings file
-> Javinizer -Find "ABP-420" -Javlibrary -R18Dev -DmmJa -Aggregated
-
-# Run a command to find metadata, aggregate it according to your settings file, and output the nfo
-> Javinizer -Find "ABP-420" -Javlibrary -R18Dev -DmmJa -Aggregated -Nfo
-
-# Open the Javinizer settings configuration
-> Javinizer -OpenSettings
-
-# Update your Javinizer module
-> Javinizer -UpdateModule
-
-# View the Javinizer commandline help (may not be up to date)
-> Javinizer -Help
-```
-
-### Quick start (Web GUI)
-
-```powershell
-# Launch the cross-platform web GUI on http://127.0.0.1:8600
-> Start-JVWeb
-```
-
-See the [Web GUI](#web-gui) section below for `-Port`/`-Bind`/`-NoBrowser`, the API, troubleshooting, and the javdb fallback setup.
-
-#### Docker
-
-A self-contained Docker image is published to [`montoyasg/javinizer-ng`](https://hub.docker.com/r/montoyasg/javinizer-ng) on every push to `master`. It bundles JVWeb, Pode, the Javinizer module, Microsoft.Playwright + Chromium (for the javdb fallback), and a noVNC web desktop so the one-time javdb login can be done from your browser. Multi-arch: `linux/amd64` and `linux/arm64`.
+The multi-arch image is published to [`montoyasg/javinizer-ng`](https://hub.docker.com/r/montoyasg/javinizer-ng) on every push to `master`. It bundles JVWeb, Pode, the Javinizer module, Microsoft.Playwright + Chromium (for the javdb fallback), and a noVNC web desktop so the one-time javdb login can be done from your browser. Multi-arch: `linux/amd64` and `linux/arm64`.
 
 ```bash
 docker run -d --name javinizer-ng \
@@ -141,21 +57,42 @@ docker run -d --name javinizer-ng \
 - **`http://localhost:6080/vnc.html`** — noVNC desktop. Use this once to complete the javdb login when JVWeb prompts; the captured session is persisted in the `jvweb-config` volume and reused for ~30 days.
 - **`VNC_PASSWORD`** — leave unset for no auth (only safe on localhost). Set a value when exposing port `6080` beyond `127.0.0.1`.
 - **Settings** — JVWeb writes user preferences to `/root/.jvsettings/jvSettings.json` inside the container. To start from the bundled defaults, copy [`src/Javinizer/jvSettings.json`](./src/Javinizer/jvSettings.json) into the `jvweb-settings` volume before first launch.
-- **Translation is not bundled.** `googletrans` has known dependency conflicts on Python 3.10 and the JVWeb UI exposes no toggle for it. If you hand-set `sort.metadata.nfo.translate=true` in `jvSettings.json`, install the package inside the container with `docker exec javinizer-ng pip3 install googletrans==4.0.0rc1`.
+- **Translation.** The built-in `google_web` module needs no extra dependencies and is selected by default when translation is toggled on from the JVWeb UI. Python-backed modules (`googletrans`, `google_trans_new`, `deepl`) are only invoked if you switch `sort.metadata.nfo.translate.module` in `jvSettings.json`; they require `docker exec javinizer-ng pip3 install <package>` first.
+
+### Running from source (development)
+
+For contributors or users who prefer not to use Docker:
+
+```powershell
+# Prereqs: PowerShell 7.2+, Pode, .NET 8 SDK (for Playwright)
+Install-Module Pode -Scope CurrentUser
+git clone https://github.com/montoyasg/javinizer-ng.git
+cd javinizer-ng
+Import-Module ./src/Javinizer/Javinizer.psd1
+Start-JVWeb                           # http://127.0.0.1:8600
+Start-JVWeb -Bind 0.0.0.0 -NoBrowser  # LAN access, headless
+```
+
+For the javdb fallback locally, install Microsoft.Playwright + Chromium per the [Web GUI requirements](#web-gui-requirements) below. On first scrape, JVWeb auto-downloads SixLabors.ImageSharp (~1 MB) into `~/.javinizer/assemblies/` for poster cropping.
 
 ## Web GUI
 
-A lightweight, portable replacement for the old PowerShell Universal dashboard. Pure PowerShell backend (via [Pode](https://badgerati.github.io/Pode/)) + vanilla HTML/CSS/JS frontend. Cross-platform (Windows / macOS / Linux). No bundled binaries.
+A portable PowerShell-native replacement for the old PowerShell Universal dashboard. Backend is [Pode](https://badgerati.github.io/Pode/) (a PowerShell HTTP server). Two frontends are mounted:
 
-Scope of v1: **Sort page only**. Primary scraper is R18.dev; **javdb.com is used as a fallback** when R18.dev has no match (gated by `web.scrape.javdb.fallback` and a cached login session). NFO + cover crop + thumbs are retained via the existing `Set-JVMovie` pipeline — nothing in the core scrape/sort stack is re-implemented here.
+- **`/next/`** — the current React sort workspace (`design/javinizer-sort/app.jsx`, vanilla React 18 UMD + Babel standalone, no build step). Source-folder browser, inline scrape previews, manual URL/ID search modal, custom poster picker, actress edit, translator toggle, bulk-tree dry-run + commit.
+- **`/`** — the original HTML/CSS/JS UI; kept mounted for backward compat.
+
+R18.dev is the primary scraper; **javdb.com is the fallback** when R18.dev has no match (gated by `web.scrape.javdb.fallback` and a cached Cloudflare/login session). NFO + cover crop + thumbs are retained via the existing `Set-JVMovie` pipeline — nothing in the core scrape/sort stack is re-implemented here.
 
 ### Web GUI requirements
+
+These matter only when running from source — the Docker image has everything baked in.
 
 - **PowerShell 7.2+** (javdb session capture uses Playwright for .NET which targets .NET 6+)
 - **Pode** PowerShell module (`Install-Module Pode -Scope CurrentUser`)
 - **Javinizer** module loaded or available for import
 - **Network on first launch** — to auto-download SixLabors.ImageSharp (~1 MB, used for cropped posters). Cached afterwards at `~/.javinizer/assemblies/`.
-- **Microsoft.Playwright (optional, for javdb fallback)** — javdb is behind Cloudflare; the module auto-captures the `_jdb_session` cookie by launching Chromium and waiting for you to log in once. Install:
+- **Microsoft.Playwright (optional, for javdb fallback)** — javdb is behind Cloudflare; the module auto-captures the `_jdb_session` cookie by launching Chromium. Anonymous capture is zero-interaction; login-required sites can be completed through a browser window. Install:
 
   ```bash
   dotnet new console -o ~/.javinizer/playwright
@@ -192,21 +129,26 @@ pwsh ./src/Javinizer/JVWeb/JVWeb.ps1 -Port 8600
 src/Javinizer/JVWeb/
 ├── JVWeb.ps1                    entrypoint
 ├── Server/
-│   ├── Start-JVWebServer.ps1    Pode bootstrap
+│   ├── Start-JVWebServer.ps1    Pode bootstrap (16-thread pool, 300s timeout)
 │   ├── Routes.Browse.ps1        /api/browse, /api/files
 │   ├── Routes.Scrape.ps1        /api/scrape, /api/screens, /api/manual-search
 │   ├── Routes.Preview.ps1       /api/preview, /api/preview-tree
-│   └── Routes.Sort.ps1          /api/sort
+│   ├── Routes.Sort.ps1          /api/sort
+│   └── Routes.Settings.ps1      /api/settings, /api/translator/health
 ├── Lib/
-│   ├── Invoke-JVScrapeCached.ps1   session cache around Get-R18DevUrl/Data
-│   ├── Resolve-JVPreview.ps1       single + bulk tree dry-run
-│   ├── Invoke-JVSortOne.ps1        thin wrapper over Set-JVMovie
-│   ├── Get-JVEffectiveSettings.ps1 merges base settings + UI overrides
-│   └── Open-JVBrowser.ps1          cross-platform browser opener
-└── static/
-    ├── index.html
-    ├── app.js
-    └── style.css
+│   ├── Invoke-JVScrapeCached.ps1      session cache around R18Dev + Javdb
+│   ├── Apply-TranslationToScrapeData.ps1  wires google_web into /api/scrape
+│   ├── Resolve-JVPreview.ps1          single + bulk tree dry-run
+│   ├── Invoke-JVSortOne.ps1           thin wrapper over Set-JVMovie
+│   ├── Get-JVEffectiveSettings.ps1    merges base settings + UI overrides
+│   └── Open-JVBrowser.ps1              cross-platform browser opener
+└── static/                      legacy HTML/CSS/JS UI, mounted at /
+
+design/javinizer-sort/           React sort workspace, mounted at /next/
+├── index.html
+├── app.jsx                      single-file React 18 SPA
+├── style.css
+└── vendor/                      react + react-dom + babel UMD bundles
 ```
 
 ### API reference
@@ -261,6 +203,14 @@ Bulk dry-run. Returns a nested tree structure + an `unresolved` array for failur
 Body: `{ path, destinationPath, settingsOverride, flags, data }`
 Commits the move via `Set-JVMovie`. `data` is optional — if passed, overrides re-scraping.
 
+#### `GET /api/settings` / `POST /api/settings`
+
+Returns or updates the whitelisted subset of `jvSettings.json` keys (sort formats, scraper toggles, javdb fallback, translator module + field list, deepl API key, etc.). POST persists to disk. The React UI's translator toggle writes here, forcing `sort.metadata.nfo.translate.module = "google_web"` and the Title/Description/Series/Maker field list when enabled.
+
+#### `GET /api/translator/health`
+
+Pings the currently configured translator with a short probe string and returns `{ status, module, latencyMs, captcha }`. Used by the UI to colour the translator badge.
+
 ### Scrape cache
 
 `Invoke-JVScrapeCached` stores results in a Pode shared state (`scrapeCache`) keyed by content ID. It persists for the server's lifetime. This means:
@@ -286,22 +236,25 @@ Plus two toggles:
 
 Overrides are request-scoped — they don't mutate `jvSettings.json`. Edit that file directly if you want persistent changes.
 
-### Known limitations (v1)
+### Known limitations
 
-- Two scrapers (R18.dev primary, javdb fallback). No aggregation across DMM/JavLibrary/etc.
-- No settings-editor UI. Edit `jvSettings.json` directly.
-- No Find tab, no trailer download UI, no metadata translation.
-- javdb fallback requires Playwright + a manual one-time login. Session is cached for 30 days per the captured cookie.
+- Two scrapers are wired into JVWeb: R18.dev primary + javdb fallback. The other scrapers in the Javinizer module (DMM, Javlibrary, Javbus, etc.) are only reachable via the legacy CLI / module functions; no JVWeb aggregation UI across all ten sources yet.
+- No full settings-editor UI. JVWeb exposes sort-format textboxes and a translator toggle; everything else still lives in `jvSettings.json`.
+- No Find tab, no trailer download UI.
+- Javdb fallback needs Chromium + Playwright. Anonymous capture is zero-interaction; for logged-in access, complete the one-time login inside the bundled noVNC desktop (Docker) or a headed Chromium window (source install). Session is cached ~30 days.
 
-### UI workflow
+### UI workflow (React `/next/` UI)
 
-1. Type the source folder in the bottom-left path box, press Enter.
-2. Toggle **Recurse source** to collate every video file beneath that root into one flat list (relative paths shown). Leave off for single-directory listings.
+1. Type the source folder in the path box, press Enter.
+2. Toggle **Recurse source** to flatten every video below that root into one list (relative paths shown). Leave off for single-directory listings.
 3. Type the destination folder in the **Sort** box.
-4. Pick a preset button or edit the three format textboxes.
-5. Use the dropdown + arrow buttons (top-left) to step through identified videos. Each step scrapes r18.dev, renders cover + Aggregated Data + actress cards, and updates the destination block under the cover.
-6. **PREVIEW TREE** projects the entire output folder before committing anything.
-7. Click ▶ Sort on a row, or **SORT ALL** inside the tree modal to commit.
+4. Pick a preset or edit the `sort.format.outputfolder` / `sort.format.folder` / `sort.format.file` textboxes.
+5. (Optional) Enable the **Translator** toggle to localize Title/Description/Series/Maker + Japanese actress names via the `google_web` module. Health/latency is shown inline.
+6. Step through identified videos with the dropdown + arrow buttons. Each step scrapes R18.dev (falling back to javdb on no-match), renders cover + Aggregated Data + actress cards, and updates the destination block under the cover.
+7. Need a non-matching title? Open the **Manual search** modal and paste an R18.dev or javdb URL, or a plain content ID.
+8. Want a different poster crop? Open **Custom poster** and pick from scraped screenshots before committing.
+9. **PREVIEW TREE** projects the entire output folder before committing anything.
+10. Click ▶ Sort on a row, or **SORT ALL** inside the tree modal to commit.
 
 ### Web GUI troubleshooting
 
