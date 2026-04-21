@@ -187,13 +187,18 @@ function Sk({ w='100%', h=16, style={} }) {
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 
-function Header({ showSettings, setShowSettings, onHelp, onSortAll, videoCount }) {
+function Header({ showSettings, setShowSettings, onHelp, onSortAll, onManualScrape, videoCount }) {
   return (
     <header style={{
       background:'var(--surface)', borderBottom:'1px solid var(--border)',
       padding:'0 16px', height:44, display:'flex', alignItems:'center', gap:10, flexShrink:0,
     }}>
       <span style={{fontSize:15, fontWeight:600, letterSpacing:'-0.01em', flex:1}}>Javinizer Sort</span>
+      <button
+        onClick={onManualScrape}
+        style={{...S.btn}}
+        title="Scrape metadata from a Javdb/R18.dev URL or ID without selecting a file"
+      >🔍 Manual Scrape</button>
       <button
         onClick={() => setShowSettings(s => !s)}
         style={{...S.btn, background: showSettings ? 'var(--accent-dim)' : 'transparent', color: showSettings ? 'var(--accent-light)' : 'var(--text-muted)', borderColor: showSettings ? 'var(--accent)' : 'var(--border)'}}
@@ -874,32 +879,104 @@ function ManualModal({ onClose, onResult, toast }) {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
 
   const go = async () => {
-    if (!q.trim()) return;
-    setBusy(true); setStatus('Searching…');
+    const query = q.trim();
+    if (!query) return;
+    setBusy(true); setStatus('Scraping…'); setResult(null);
     try {
-      const res = await api('/api/manual-search', { method:'POST', body:{ query: q.trim() } });
-      setStatus('Found: ' + res.data.Id);
-      setTimeout(() => { onResult(res.data); onClose(); }, 600);
-    } catch(e) { setStatus('Error: ' + e.message); }
-    finally { setBusy(false); }
+      const res = await api('/api/manual-search', { method:'POST', body:{ query } });
+      setStatus('');
+      setResult(res.data);
+    } catch(e) {
+      setStatus('Error: ' + e.message);
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const apply = () => {
+    if (result && onResult) { onResult(result); onClose(); }
+  };
+
+  const reset = () => { setResult(null); setStatus(''); };
+
+  const cover = result && (Array.isArray(result.CoverUrl) ? result.CoverUrl[0] : result.CoverUrl);
+  const actressLabel = result && Array.isArray(result.Actress)
+    ? result.Actress.map(a => [a.LastName, a.FirstName].filter(Boolean).join(' ') || a.Name || '').filter(Boolean).join(', ')
+    : '';
+  const genreLabel = result && Array.isArray(result.Genre) ? result.Genre.join(', ') : (result?.Genre || '');
 
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}} onClick={onClose}>
-      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,width:460,overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,width: result ? 640 : 480, maxWidth:'92vw', maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
         <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',fontWeight:600,fontSize:14}}>
-          <span>Manual Search</span>
+          <span>Manual Scrape{result ? ` — ${result.Id || ''}` : ''}</span>
           <button onClick={onClose} style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:20,lineHeight:1}}>×</button>
         </div>
-        <div style={{padding:16,display:'flex',flexDirection:'column',gap:10}}>
-          <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&go()} placeholder="Content ID (e.g. CAWD-125)" style={{...S.field, fontSize:13}} autoFocus />
-          <button onClick={go} disabled={busy} style={{background:'var(--accent)',border:'none',color:'#fff',padding:'8px',borderRadius:5,fontSize:13,fontWeight:600}}>
-            {busy ? 'Searching…' : 'Search'}
-          </button>
-          {status && <div style={{fontSize:12, color: status.startsWith('Error') ? 'var(--red)' : 'var(--green)'}}>{status}</div>}
-        </div>
+
+        {!result && (
+          <div style={{padding:16,display:'flex',flexDirection:'column',gap:10}}>
+            <label style={{...S.label}}>Content ID or site URL</label>
+            <input
+              value={q}
+              onChange={e=>setQ(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&go()}
+              placeholder="CAWD-125 · https://javdb.com/v/… · https://r18.dev/videos/vod/movies/detail/-/id=…"
+              style={{...S.field, fontSize:13, fontFamily:'var(--mono)'}}
+              autoFocus
+              spellCheck={false}
+            />
+            <div style={{fontSize:11, color:'var(--text-muted)', lineHeight:1.5}}>
+              Paste a javdb.com or r18.dev link to scrape that page directly, or enter an ID and Javinizer will search for it.
+            </div>
+            <button onClick={go} disabled={busy || !q.trim()} style={{background:'var(--accent)',border:'none',color:'#fff',padding:'8px',borderRadius:5,fontSize:13,fontWeight:600,cursor: busy || !q.trim() ? 'default' : 'pointer', opacity: busy || !q.trim() ? 0.5 : 1}}>
+              {busy ? 'Scraping…' : '🔍 Scrape'}
+            </button>
+            {status && <div style={{fontSize:12, color: status.startsWith('Error') ? 'var(--red)' : 'var(--text-muted)'}}>{status}</div>}
+          </div>
+        )}
+
+        {result && (
+          <div style={{display:'flex', flexDirection:'column', flex:1, overflow:'hidden'}}>
+            <div style={{display:'flex', gap:14, padding:14, overflow:'auto', flex:1}}>
+              {cover && (
+                <img src={cover} alt="" style={{width:160, height:'auto', borderRadius:4, border:'1px solid var(--border)', flexShrink:0, objectFit:'cover', alignSelf:'flex-start'}} />
+              )}
+              <div style={{flex:1, display:'flex', flexDirection:'column', gap:6, minWidth:0}}>
+                {[
+                  ['ID', result.Id],
+                  ['Title', result.Title],
+                  ['Release Date', result.ReleaseDate],
+                  ['Runtime', result.Runtime ? `${result.Runtime} min` : ''],
+                  ['Maker', result.Maker],
+                  ['Series', result.Series],
+                  ['Director', result.Director],
+                  ['Actress', actressLabel],
+                  ['Genre', genreLabel],
+                  ['Source', result.Source],
+                  ['URL', result.Url],
+                ].filter(([,v]) => v).map(([k,v]) => (
+                  <div key={k} style={{display:'grid', gridTemplateColumns:'90px 1fr', gap:8, fontSize:12}}>
+                    <span style={{color:'var(--text-muted)', fontWeight:500}}>{k}</span>
+                    <span style={{color:'var(--text)', wordBreak:'break-word', fontFamily: k==='URL'||k==='ID'?'var(--mono)':'inherit'}}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{padding:'10px 14px', borderTop:'1px solid var(--border)', background:'var(--surface-2)', display:'flex', gap:8, alignItems:'center'}}>
+              <button onClick={reset} style={{...S.btn, fontSize:12}}>← Scrape another</button>
+              <div style={{flex:1}} />
+              {onResult && (
+                <button onClick={apply} style={{background:'var(--green)',border:'none',color:'#fff',padding:'6px 14px',borderRadius:5,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                  Apply to selected file
+                </button>
+              )}
+              <button onClick={onClose} style={{...S.btn, fontSize:12}}>Close</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1244,6 +1321,7 @@ function App() {
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const [sortedPaths, setSortedPaths] = useState(() => new Set());
   const [serverSettings, setServerSettings] = useState(null);
+  const [showManualScrape, setShowManualScrape] = useState(false);
 
   // Persist settings
   useEffect(() => { localStorage.setItem('jv-settings', JSON.stringify(settings)); }, [settings]);
@@ -1342,7 +1420,7 @@ function App() {
 
   return (
     <div style={{display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg)', color:'var(--text)', fontFamily:'var(--sans)', overflow:'hidden'}}>
-      <Header showSettings={showSettings} setShowSettings={setShowSettings} onHelp={()=>setShowHelp(true)} onSortAll={()=>setShowSortAll(true)} videoCount={videos.length} />
+      <Header showSettings={showSettings} setShowSettings={setShowSettings} onHelp={()=>setShowHelp(true)} onSortAll={()=>setShowSortAll(true)} onManualScrape={()=>setShowManualScrape(true)} videoCount={videos.length} />
       {showSettings && <SortSettings s={settings} set={setSettings} serverSettings={serverSettings} onSaveDefaults={handleSaveDefaults} onResetToSaved={handleResetToSaved} addToast={add} />}
       <div style={{flex:1, display:'flex', overflow:'hidden'}}>
         {/* Sidebar */}
@@ -1365,6 +1443,7 @@ function App() {
       <ToastHost toasts={toasts} remove={remove} />
       {showHelp && <HelpModal onClose={()=>setShowHelp(false)} />}
       {showSortAll && <SortAllModal videos={videos} settings={settings} onClose={()=>setShowSortAll(false)} />}
+      {showManualScrape && <ManualModal onClose={()=>setShowManualScrape(false)} toast={add} />}
     </div>
   );
 }
