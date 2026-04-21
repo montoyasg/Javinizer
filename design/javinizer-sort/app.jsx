@@ -513,6 +513,100 @@ function JavdbSessionPanel({ s, set, addToast }) {
   );
 }
 
+function TranslatorPanel({ addToast }) {
+  const [enabled, setEnabled] = useState(null); // null=loading
+  const [modName, setModName] = useState('');
+  const [language, setLanguage] = useState('');
+  const [health, setHealth] = useState(null); // null=idle, {checking}, or api result
+  const [busy, setBusy] = useState(false);
+
+  const loadAll = useCallback(async () => {
+    try {
+      const res = await api('/api/settings');
+      const srv = res.settings || {};
+      const on = !!srv['sort.metadata.nfo.translate'];
+      setModName(srv['sort.metadata.nfo.translate.module'] || '?');
+      setLanguage(srv['sort.metadata.nfo.translate.language'] || '?');
+      setEnabled(on);
+      if (!on) { setHealth(null); return; }
+      setHealth({ checking: true });
+      try {
+        const h = await api('/api/translator/health');
+        setHealth(h);
+      } catch (e) {
+        setHealth({ ok: false, reason: e.message });
+      }
+    } catch (e) {
+      setEnabled(false);
+      setHealth({ ok: false, reason: e.message });
+    }
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const onToggle = async (e) => {
+    const want = e.target.checked;
+    setBusy(true);
+    try {
+      await api('/api/settings', {
+        method: 'POST',
+        body: { settings: { 'sort.metadata.nfo.translate': want } },
+      });
+      addToast?.(`Translator ${want ? 'enabled' : 'disabled'}`, 'ok');
+    } catch (err) {
+      addToast?.(`Failed to update translator: ${err.message}`, 'error');
+    } finally {
+      setBusy(false);
+      await loadAll();
+    }
+  };
+
+  const dot =
+    enabled == null   ? 'var(--text-muted)' :
+    !enabled          ? 'var(--text-muted)' :
+    health?.checking  ? 'var(--text-muted)' :
+    health?.ok        ? 'var(--green)' :
+                        'var(--red)';
+
+  const statusText =
+    enabled == null   ? 'checking…' :
+    !enabled          ? 'OFF' :
+    health?.checking  ? `ON — ${modName} → ${language} · checking…` :
+    health?.ok        ? `ON — ${modName} → ${language} · healthy (${health.latency_ms}ms)` :
+                        `ON — ${modName} → ${language} · unhealthy: ${health?.reason || health?.error || 'unknown'}`;
+
+  return (
+    <div style={{width:'100%', display:'flex', flexDirection:'column', gap:6, paddingTop:6, borderTop:'1px solid var(--border)'}}>
+      <div style={{display:'flex', alignItems:'center', gap:12, flexWrap:'wrap'}}>
+        <span style={S.label}>Translator</span>
+
+        <label
+          title="Translate Japanese fields (description by default) in scraped results. Module & language live in jvSettings.json."
+          style={{display:'flex', gap:5, alignItems:'center', fontSize:11, cursor: busy || enabled == null ? 'default' : 'pointer', userSelect:'none', color:'var(--text-muted)', opacity: busy || enabled == null ? 0.6 : 1}}
+        >
+          <input
+            type="checkbox"
+            checked={!!enabled}
+            disabled={busy || enabled == null}
+            onChange={onToggle}
+            style={{accentColor:'var(--accent)'}}
+          />
+          Enable
+        </label>
+
+        <div style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'var(--text-muted)'}}>
+          <span style={{width:8, height:8, borderRadius:'50%', background:dot, flexShrink:0}} />
+          <span>{statusText}</span>
+        </div>
+      </div>
+
+      <div style={{fontSize:10, color:'var(--text-muted)', paddingLeft:2, fontStyle:'italic', lineHeight:1.5}}>
+        Module and target language are edited in <code>jvSettings.json</code> (<code>sort.metadata.nfo.translate.module</code> / <code>.language</code>). The default <code>googletrans</code> requires Python; set the module to <code>google_web</code> for the built-in native PowerShell translator.
+      </div>
+    </div>
+  );
+}
+
 // ─── Sort Settings bar ────────────────────────────────────────────────────────
 
 function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved, addToast }) {
@@ -671,6 +765,7 @@ function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved, 
         </div>
       </div>
       <JavdbSessionPanel s={s} set={set} addToast={addToast} />
+      <TranslatorPanel addToast={addToast} />
       {pickerTarget && (
         <FolderPickerModal
           initial={s[pickerTarget] || '/Volumes'}
