@@ -548,11 +548,18 @@ function TranslatorPanel({ addToast }) {
     const want = e.target.checked;
     setBusy(true);
     try {
+      const update = { 'sort.metadata.nfo.translate': want };
+      if (want) {
+        update['sort.metadata.nfo.translate.module'] = 'google_web';
+      }
       await api('/api/settings', {
         method: 'POST',
-        body: { settings: { 'sort.metadata.nfo.translate': want } },
+        body: { settings: update },
       });
-      addToast?.(`Translator ${want ? 'enabled' : 'disabled'}`, 'ok');
+      addToast?.(
+        want ? 'Translator enabled (module set to google_web)' : 'Translator disabled',
+        'ok'
+      );
     } catch (err) {
       addToast?.(`Failed to update translator: ${err.message}`, 'error');
     } finally {
@@ -601,7 +608,7 @@ function TranslatorPanel({ addToast }) {
       </div>
 
       <div style={{fontSize:10, color:'var(--text-muted)', paddingLeft:2, fontStyle:'italic', lineHeight:1.5}}>
-        Module and target language are edited in <code>jvSettings.json</code> (<code>sort.metadata.nfo.translate.module</code> / <code>.language</code>). The default <code>googletrans</code> requires Python; set the module to <code>google_web</code> for the built-in native PowerShell translator.
+        Enabling forces module to <code>google_web</code> (native PowerShell, no Python required). Target language is read from <code>jvSettings.json</code> (<code>sort.metadata.nfo.translate.language</code>, default <code>en</code>).
       </div>
     </div>
   );
