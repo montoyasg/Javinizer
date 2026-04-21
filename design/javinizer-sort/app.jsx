@@ -41,6 +41,7 @@ const AGG_FIELDS = [
   { key: 'Votes', label: 'Votes' },
   { key: 'Genre', label: 'Genre', span: true, multi: true },
   { key: 'CoverUrl', label: 'Cover URL', span: true },
+  { key: 'PosterUrl', label: 'Poster URL', span: true },
   { key: 'ScreenshotUrl', label: 'Screenshot URLs', span: true, multi: true },
   { key: 'TrailerUrl', label: 'Trailer URL', span: true },
 ];
@@ -1125,6 +1126,67 @@ function HelpModal({ onClose }) {
   );
 }
 
+// ─── Poster Picker ────────────────────────────────────────────────────────────
+
+function PosterPicker({ data, onPick }) {
+  const cover = Array.isArray(data?.CoverUrl) ? data.CoverUrl[0] : data?.CoverUrl;
+  const shots = data?.ScreenshotUrl
+    ? (Array.isArray(data.ScreenshotUrl) ? data.ScreenshotUrl : [data.ScreenshotUrl])
+    : [];
+  const candidates = [cover, ...shots].filter(Boolean);
+  if (!candidates.length) return null;
+
+  const override = data?.PosterUrl || '';
+  const current = override || cover;
+
+  return (
+    <div style={{display:'flex', flexDirection:'column', gap:4}}>
+      <div style={{display:'flex', alignItems:'center', gap:8, fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em'}}>
+        <span>Poster</span>
+        {override
+          ? (
+            <>
+              <span style={{color:'var(--accent-light)', textTransform:'none', letterSpacing:0, fontSize:10}}>custom — downloaded directly, no crop</span>
+              <button
+                onClick={() => onPick('')}
+                title="Clear override — auto-crop poster from cover/fanart instead"
+                style={{...S.btn, fontSize:10, padding:'1px 6px'}}
+              >↺ auto-crop from fanart</button>
+            </>
+          )
+          : <span style={{color:'var(--text-muted)', textTransform:'none', letterSpacing:0, fontSize:10}}>default — auto-cropped from fanart. Click a thumbnail to override.</span>
+        }
+      </div>
+      <div style={{display:'flex', gap:6, overflowX:'auto', paddingBottom:4}}>
+        {candidates.map((url, i) => {
+          const selected = url === current;
+          return (
+            <div
+              key={url+i}
+              onClick={() => onPick(url === cover ? '' : url)}
+              style={{
+                position:'relative', flexShrink:0, cursor:'pointer',
+                border: selected ? '2px solid var(--accent)' : '1px solid var(--border)',
+                borderRadius:4, overflow:'hidden', lineHeight:0,
+              }}
+              title={selected ? 'Current poster' : 'Click to use as poster'}
+            >
+              <img
+                src={url}
+                loading="lazy"
+                style={{width:120, height:68, objectFit:'cover', display:'block', opacity: selected ? 1 : 0.75}}
+              />
+              {selected && (
+                <span style={{position:'absolute', top:2, right:2, background:'var(--accent)', color:'#fff', borderRadius:3, padding:'0 4px', fontSize:10, fontWeight:600}}>✓</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
 
 function DetailPanel({ file, videos, selectedIdx, onNavigate, onFileSorted, settings, addToast }) {
@@ -1231,6 +1293,12 @@ function DetailPanel({ file, videos, selectedIdx, onNavigate, onFileSorted, sett
         <code style={{fontSize:11, color: pathPreview ? 'var(--accent-light)' : 'var(--text-muted)', fontFamily:'var(--mono)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
           {pathPreview || (settings.dest ? '(computing…)' : 'Set destination in Sort Settings ↑')}
         </code>
+        {data?.PosterUrl && (
+          <span
+            title={`Custom poster will be downloaded from: ${data.PosterUrl}`}
+            style={{fontSize:10, color:'var(--accent-light)', background:'var(--accent-dim)', border:'1px solid var(--accent)', borderRadius:3, padding:'1px 6px', flexShrink:0, letterSpacing:'0.04em'}}
+          >poster: custom</span>
+        )}
       </div>
 
       {/* Content area */}
@@ -1245,6 +1313,9 @@ function DetailPanel({ file, videos, selectedIdx, onNavigate, onFileSorted, sett
                 : <div style={{color:'var(--text-muted)',fontSize:12,textAlign:'center',padding:12}}>No cover</div>
             }
           </div>
+          {!scraping && data && (
+            <PosterPicker data={data} onPick={(url) => handleFieldChange('PosterUrl', url)} />
+          )}
           {scraping ? (
             <div style={{display:'flex',flexDirection:'column',gap:6}}>
               <Sk h={14}/><Sk h={12} w="60%"/><Sk h={12} w="70%"/>
