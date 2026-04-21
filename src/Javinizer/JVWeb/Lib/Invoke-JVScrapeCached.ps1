@@ -1,7 +1,8 @@
 function Invoke-JVScrapeCached {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)]
+        [Parameter()]
+        [AllowEmptyString()]
         [string]$Id,
 
         [Parameter()]
@@ -13,6 +14,10 @@ function Invoke-JVScrapeCached {
         [Parameter()]
         [object]$Settings
     )
+
+    if (-not $Url -and [string]::IsNullOrWhiteSpace($Id)) {
+        throw 'Invoke-JVScrapeCached requires either -Id or -Url.'
+    }
 
     $key = if ($Url) { "url:$Url" } else { "id:$($Id.ToUpper())" }
 
