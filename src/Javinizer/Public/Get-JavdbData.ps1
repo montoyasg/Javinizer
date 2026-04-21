@@ -44,7 +44,7 @@ function Get-JavdbData {
             $webRequest = Invoke-JavdbRequest @reqParams
         } catch {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Error [GET] on URL [$Url]: $PSItem" -Action 'Continue'
-            return
+            throw
         }
 
         $movieDataObject = [PSCustomObject]@{

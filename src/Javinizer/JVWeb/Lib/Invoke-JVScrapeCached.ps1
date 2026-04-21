@@ -35,12 +35,13 @@ function Invoke-JVScrapeCached {
 
     $data = $null
 
-    # Direct URL path - dispatch by domain.
+    # Direct URL path - dispatch by domain. Surface errors for explicit user
+    # intent; fall-through paths below keep silent failure.
     if ($Url) {
         if ($Url -match 'javdb\.com') {
-            $data = Invoke-JavdbBranch -Url $Url -Settings $Settings
+            $data = Invoke-JavdbBranch -Url $Url -Settings $Settings -ThrowOnError
         } else {
-            $data = Get-R18DevData -Url $Url -ErrorAction SilentlyContinue
+            $data = Get-R18DevData -Url $Url -ErrorAction Stop
         }
     } else {
         # ID path: R18.dev primary, javdb fallback.
@@ -74,18 +75,28 @@ function Invoke-JavdbBranch {
         [string]$Url,
 
         [Parameter()]
-        [object]$Settings
+        [object]$Settings,
+
+        [Parameter()]
+        [switch]$ThrowOnError
     )
 
     $sessionInfo = $null
     try {
         $sessionInfo = Get-JavdbSession -Settings $Settings -PassThru -ErrorAction Stop
     } catch {
-        Write-PodeHost "javdb fallback: could not resolve session: $PSItem" -ForegroundColor Yellow
+        $msg = "javdb: could not resolve session: $PSItem"
+        Write-PodeHost $msg -ForegroundColor Yellow
+        if ($ThrowOnError) { throw $msg }
         return $null
     }
 
-    if (-not $sessionInfo -or -not $sessionInfo.Session) { return $null }
+    if (-not $sessionInfo -or -not $sessionInfo.Session) {
+        $msg = 'javdb: no session cookie available. Click Refresh Javdb session (or set javdb.cookie.browser / paste cookies).'
+        Write-PodeHost $msg -ForegroundColor Yellow
+        if ($ThrowOnError) { throw $msg }
+        return $null
+    }
     $cookie = $sessionInfo.Session
     $cfClear = $sessionInfo.CfClearance
     $ua = $null
@@ -115,11 +126,14 @@ function Invoke-JavdbBranch {
                         return Get-JavdbData -Url $urlObj.En -Session $refreshed.Session -CfClearance $refreshed.CfClearance -UserAgent $rUa -ErrorAction Stop
                     }
                 }
+                if ($ThrowOnError) { throw 'javdb: session recapture did not yield cookies' }
             } catch {
                 Write-PodeHost "javdb re-capture failed: $PSItem" -ForegroundColor Red
+                if ($ThrowOnError) { throw }
             }
         } else {
-            Write-PodeHost "javdb fallback error: $PSItem" -ForegroundColor Yellow
+            Write-PodeHost "javdb error: $PSItem" -ForegroundColor Yellow
+            if ($ThrowOnError) { throw }
         }
         return $null
     }
