@@ -513,7 +513,7 @@ function JavdbSessionPanel({ s, set, addToast }) {
   );
 }
 
-const TRANSLATE_DEFAULT_FIELDS = ['Title', 'Description', 'Series', 'Maker'];
+const TRANSLATE_DEFAULT_FIELDS = ['Title', 'Description', 'Series', 'Maker', 'Actress'];
 
 function TranslatorPanel({ addToast }) {
   const [enabled, setEnabled] = useState(null); // null=loading
@@ -620,7 +620,7 @@ function TranslatorPanel({ addToast }) {
       </div>
 
       <div style={{fontSize:10, color:'var(--text-muted)', paddingLeft:2, fontStyle:'italic', lineHeight:1.5}}>
-        Enabling forces module to <code>google_web</code> (native PowerShell, no Python required) and fields to <code>Title, Description, Series, Maker</code>. Target language is read from <code>jvSettings.json</code> (<code>sort.metadata.nfo.translate.language</code>, default <code>en</code>).
+        Enabling forces module to <code>google_web</code> (native PowerShell, no Python required) and fields to <code>Title, Description, Series, Maker, Actress</code> (Actress translates the <code>JapaneseName</code> of each actress in place). Target language is read from <code>jvSettings.json</code> (<code>sort.metadata.nfo.translate.language</code>, default <code>en</code>).
       </div>
     </div>
   );

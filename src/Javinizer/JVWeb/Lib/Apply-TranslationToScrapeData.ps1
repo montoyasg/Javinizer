@@ -48,6 +48,18 @@ function Apply-TranslationToScrapeData {
                 if ($t) {
                     $Data.$propName = @($t -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
                 }
+            } elseif ($key -eq 'actress' -and $orig -is [System.Collections.IEnumerable] -and -not ($orig -is [string])) {
+                # Translate each actress's JapaneseName in place (scraper fields retain everything else)
+                foreach ($act in $orig) {
+                    if ($null -eq $act) { continue }
+                    if ($act.PSObject.Properties.Name -notcontains 'JapaneseName') { continue }
+                    $jn = $act.JapaneseName
+                    if ([string]::IsNullOrWhiteSpace($jn)) { continue }
+                    $t = Get-TranslatedString -String $jn -Language $language -Module $module -TranslateDeeplApiKey $deeplKey
+                    if ($t -and ($t -is [string]) -and $t.Trim() -ne '' -and $t.Trim() -ne $jn) {
+                        $act.JapaneseName = $t.Trim()
+                    }
+                }
             } elseif ($orig -is [string]) {
                 $t = Get-TranslatedString -String $orig -Language $language -Module $module -TranslateDeeplApiKey $deeplKey
                 if ($t -and ($t -is [string]) -and $t.Trim() -ne '') {
