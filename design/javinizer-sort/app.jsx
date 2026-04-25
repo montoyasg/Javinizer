@@ -1379,6 +1379,7 @@ function DetailPanel({ file, videos, selectedIdx, onNavigate, onFileSorted, sett
   );
 
   const cover = data && (Array.isArray(data.CoverUrl) ? data.CoverUrl[0] : data.CoverUrl);
+  const previewImage = (data && data.PosterUrl) || cover;
   const shots = data?.ScreenshotUrl ? (Array.isArray(data.ScreenshotUrl) ? data.ScreenshotUrl : [data.ScreenshotUrl]) : [];
 
   return (
@@ -1423,7 +1424,7 @@ function DetailPanel({ file, videos, selectedIdx, onNavigate, onFileSorted, sett
             {scraping
               ? <Sk w="100%" h={120} style={{borderRadius:0}} />
               : cover
-                ? <img src={cover} alt="cover" style={{maxWidth:'100%', maxHeight:480, height:'auto', width:'auto', display:'block'}} />
+                ? <img src={previewImage} alt="cover" style={{maxWidth:'100%', maxHeight:480, height:'auto', width:'auto', display:'block'}} />
                 : <div style={{color:'var(--text-muted)',fontSize:12,textAlign:'center',padding:12}}>No cover</div>
             }
           </div>
