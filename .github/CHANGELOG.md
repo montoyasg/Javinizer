@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.1.0] - 2026-04-25
+
+### Added
+
+- **Actress metadata enrichment from xcity.jp/idol/.** The per-movie
+  Actresses tab in the Next UI now shows bio, birthdate, height,
+  measurements, aliases, and a high-resolution photo for each actress,
+  fetched on demand from xcity. Two HTTP requests per actress (search +
+  detail), browser-fingerprint headers, jittered delays, adaptive
+  5/15/60/180s backoff, abort-on-403/captcha. xcity is romaji-search
+  only; the JapaneseName from upstream scrapes is trusted as
+  authoritative.
+- **Local actress dataset** at `~/.jvsettings/jvActresses.json`. Indexed
+  by lowercase romaji name, JapaneseName, and each alias — same payload
+  referenced by all keys, so updates land everywhere. Atomic writes via
+  `.tmp` + `Move-Item`. Field-by-field merge preserves manually-augmented
+  data on re-fetches.
+- **Global Actress Library view** in the Next UI (toggle via the new
+  `👥 Library` button in the header). Search, filter (Missing photo /
+  Missing bio), paginated grid, click-through detail drawer with full
+  bio + xcity link + per-actress refetch.
+- **Background-job runner** with file-backed state at
+  `~/.javinizer/jobs/{id}.json`. ThreadJob-based, in-process, survives
+  Pode runspace boundaries. Sticky `JobProgressBar` polls
+  `/api/jobs/:id` every 750ms with current/total counter, status color,
+  and Cancel button. Used by both xcity refresh and Jellyfin sync.
+- **Jellyfin sync** via `Set-JVJellyfinActresses` (Public, exported)
+  and the new `JellyfinPanel` in Sort Settings. Pushes photo + bio
+  (Overview) + birthdate (PremiereDate, ISO-converted from xcity's
+  "1998 Nov 05") + aliases (AlternateNames / NameAlias / Aliases —
+  picked from whichever the server's full-item payload exposes).
+  Coexists with the legacy `Set-JVEmbyThumbs` (CLI users keep that).
+- **Name-swap duplicate merge** for Jellyfin. Detects "Yuna Ogura" ↔
+  "Ogura Yuna" entries on the server, picks the canonical (more linked
+  items wins), reassigns every linked item's People array to point at
+  the canonical, and deletes the duplicate. Gated by a Merge duplicates
+  toggle. Preview (dry-run) recommended before the first real run —
+  this step is destructive.
+- **New routes:** `GET /api/jellyfin/health`,
+  `POST /api/jellyfin/sync-actresses`, `POST /api/actresses/refresh`
+  (source: 'jellyfin' or 'names'), `POST /api/actresses/lookup` (with
+  optional autoEnrich), `GET /api/actresses?q=&page=&filter=`,
+  `GET /api/actresses/:key`, `GET /api/jobs/:id`,
+  `POST /api/jobs/:id/cancel`.
+
+### Changed
+
+- `emby.url` and `emby.apikey` are now whitelisted in the settings
+  GET/POST endpoints, so the JellyfinPanel can persist them.
+
 ## [1.0.4] - 2026-04-25
 
 ### Fixed
