@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.0.0] - 2026-04-25
+
+First release of the **NG fork** ([montoyasg/javinizer-ng](https://github.com/montoyasg/javinizer-ng)).
+Resets the version line to 1.0.0; the 2.x history below is upstream Javinizer
+(no longer published to PSGallery from this fork).
+
+### Added
+
+- `Start-JVWeb`: cross-platform web GUI for the Sort workflow (replaces the
+  Windows-only PowerShell Universal GUI).
+- React `/next/` sort workspace with persistent settings, multi-part file
+  support, manual-search modal accepting both codes and Javdb/R18.dev URLs,
+  and a custom poster picker (cover + screenshots).
+- Docker containerization with bundled noVNC desktop; multi-arch
+  (linux/amd64, linux/arm64) builds published to Docker Hub.
+- Javdb persistent session capture via Playwright + Chromium with stealth
+  patches, anonymous zero-interaction Cloudflare bypass, full Chrome header
+  suite to match `cf_clearance`, and a Playwright fetch fallback for
+  persistent 403s. Sessions are cached ~30 days.
+- R18.dev → Javdb fallback chain in scrape orchestration; manual-search
+  errors are surfaced verbatim instead of collapsing to "No match".
+- `google_web` translator backend (no API key, no Python deps) with a
+  JVWeb toggle and health check. Translates Title / Description / Series /
+  Maker and the actress JapaneseName (split into Last / First).
+
+### Changed
+
+- README rewritten for the NG Docker / React / translator stack; CLI and
+  PSGallery onboarding removed.
+- JVWeb Pode thread pool raised to 16; request timeout to 300s.
+- React UI served with a `<base href>` so relative asset paths resolve
+  without a trailing slash.
+
+### Fixed
+
+- Preview window now updates to show the selected custom poster image
+  (was hardcoded to `CoverUrl` and ignored `PosterUrl`).
+- Javdb code-to-URL lookup parses current search HTML (`<strong>` inside
+  `.video-title`) instead of the long-dead `<div class="uid">` selector,
+  so codes like `SNOS-189` resolve to `/v/<slug>` automatically.
+
+### Removed
+
+- Legacy PowerShell Universal GUI, Azure DevOps pipeline, GitBook docs,
+  and CLI-focused manifest entries archived to `Archive/`.
+- GHCR publishing (Docker Hub only).
+
 ## [2.6.3]
 
 ### Fixed
