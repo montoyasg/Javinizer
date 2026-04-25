@@ -127,16 +127,33 @@ Add-PodeRoute -Method Get -Path '/api/actresses' -ScriptBlock {
         }
 
         $total = $entries.Count
-        $sorted = $entries | Sort-Object { "$($_.name)" }
-        $start = ($page - 1) * $pageSize
-        $slice = if ($start -ge $total) { @() } else { @($sorted)[$start..[Math]::Min($start + $pageSize - 1, $total - 1)] }
-
-        Write-PodeJsonResponse -Value @{
-            entries  = $slice
-            total    = $total
-            page     = $page
-            pageSize = $pageSize
+        $sorted = New-Object System.Collections.Generic.List[Object]
+        foreach ($e in ($entries | Sort-Object { "$($_.name)" })) { $sorted.Add($e) | Out-Null }
+        $sliceList = New-Object System.Collections.Generic.List[Object]
+        if ($total -gt 0) {
+            $start = ($page - 1) * $pageSize
+            $end = [Math]::Min($start + $pageSize - 1, $total - 1)
+            for ($idx = $start; $idx -le $end -and $idx -lt $total; $idx++) {
+                $sliceList.Add($sorted[$idx]) | Out-Null
+            }
         }
+
+        # Build JSON manually to preserve single-element-array shape (PS's
+        # ConvertTo-Json unwraps 1-element arrays inside hashtables).
+        $entriesJson = switch ($sliceList.Count) {
+            0       { '[]' }
+            1       { '[' + (ConvertTo-Json -InputObject $sliceList[0] -Depth 12 -Compress) + ']' }
+            default { ConvertTo-Json -InputObject ([Object[]]$sliceList) -Depth 12 -Compress }
+        }
+        $body = @"
+{
+  "entries": $entriesJson,
+  "total": $total,
+  "page": $page,
+  "pageSize": $pageSize
+}
+"@
+        Write-PodeTextResponse -Value $body -ContentType 'application/json'
     } catch {
         Write-PodeHost "actresses list error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red
         Write-PodeJsonResponse -Value @{ error = "$($PSItem.Exception.Message)" } -StatusCode 500

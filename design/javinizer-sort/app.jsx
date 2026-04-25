@@ -188,13 +188,18 @@ function Sk({ w='100%', h=16, style={} }) {
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 
-function Header({ showSettings, setShowSettings, onHelp, onSortAll, onManualScrape, videoCount }) {
+function Header({ showSettings, setShowSettings, onHelp, onSortAll, onManualScrape, videoCount, view, setView }) {
   return (
     <header style={{
       background:'var(--surface)', borderBottom:'1px solid var(--border)',
       padding:'0 16px', height:44, display:'flex', alignItems:'center', gap:10, flexShrink:0,
     }}>
-      <span style={{fontSize:15, fontWeight:600, letterSpacing:'-0.01em', flex:1}}>Javinizer Sort</span>
+      <span style={{fontSize:15, fontWeight:600, letterSpacing:'-0.01em', flex:1}}>Javinizer {view === 'library' ? 'Library' : 'Sort'}</span>
+      <button
+        onClick={() => setView(v => v === 'library' ? 'sort' : 'library')}
+        style={{...S.btn, background: view === 'library' ? 'var(--accent-dim)' : 'transparent', color: view === 'library' ? 'var(--accent-light)' : 'var(--text-muted)', borderColor: view === 'library' ? 'var(--accent)' : 'var(--border)'}}
+        title="Browse actress dataset"
+      >👥 Library</button>
       <button
         onClick={onManualScrape}
         style={{...S.btn}}
@@ -212,6 +217,211 @@ function Header({ showSettings, setShowSettings, onHelp, onSortAll, onManualScra
       >▶▶ Sort All {videoCount > 0 && `(${videoCount})`}</button>
       <button onClick={onHelp} style={{...S.btn}}>? Keys</button>
     </header>
+  );
+}
+
+// ─── Job Progress Bar ─────────────────────────────────────────────────────────
+
+function JobProgressBar({ jobId, onDone }) {
+  const [state, setState] = useState(null);
+
+  useEffect(() => {
+    if (!jobId) { setState(null); return; }
+    let cancelled = false;
+    let timer = null;
+
+    const tick = async () => {
+      try {
+        const s = await api(`/api/jobs/${jobId}`);
+        if (cancelled) return;
+        setState(s);
+        if (s.status === 'running') {
+          timer = setTimeout(tick, 750);
+        } else if (onDone) {
+          onDone(s);
+        }
+      } catch (e) {
+        if (!cancelled && onDone) onDone(null);
+      }
+    };
+    tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [jobId]);
+
+  if (!state) return null;
+  const isRunning = state.status === 'running';
+  const cur = state.progress?.current ?? 0;
+  const tot = state.progress?.total ?? 0;
+  const pct = tot > 0 ? Math.round((cur / tot) * 100) : 0;
+  const statusColor =
+    state.status === 'done'      ? 'var(--green)' :
+    state.status === 'error'     ? 'var(--red)' :
+    state.status === 'cancelled' ? 'var(--text-muted)' :
+                                   'var(--accent)';
+
+  const cancel = async () => {
+    try { await api(`/api/jobs/${jobId}/cancel`, { method:'POST' }); } catch {}
+  };
+
+  return (
+    <div style={{position:'sticky', top:0, zIndex:500, background:'var(--surface)', borderBottom:`1px solid var(--border)`, padding:'4px 12px', display:'flex', alignItems:'center', gap:10, fontSize:11}}>
+      <span style={{color: statusColor, fontWeight:600, textTransform:'uppercase', fontSize:10, minWidth:60}}>{state.kind || 'job'} · {state.status}</span>
+      <div style={{flex:1, height:5, background:'var(--surface-2)', borderRadius:3, overflow:'hidden'}}>
+        <div style={{height:'100%', width:`${pct}%`, background: statusColor, transition:'width 200ms ease'}} />
+      </div>
+      <span style={{color:'var(--text-muted)', minWidth:50, textAlign:'right'}}>{cur}/{tot}</span>
+      <span style={{color:'var(--text-soft)', flex:'0 1 auto', maxWidth:'40%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{state.progress?.message}</span>
+      {isRunning && <button onClick={cancel} style={{...S.btn, fontSize:10, padding:'2px 6px'}}>Cancel</button>}
+      {!isRunning && <button onClick={() => onDone && onDone(null)} style={{...S.btn, fontSize:10, padding:'2px 6px'}}>×</button>}
+    </div>
+  );
+}
+
+// ─── Actress Library ──────────────────────────────────────────────────────────
+
+function ActressLibrary({ onJob, addToast }) {
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(60);
+  const [data, setData] = useState({ entries: [], total: 0 });
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      if (q) params.set('q', q);
+      if (filter && filter !== 'all') params.set('filter', filter);
+      const res = await api(`/api/actresses?${params}`);
+      setData({ entries: res.entries || [], total: res.total || 0 });
+    } catch (e) {
+      addToast?.('Failed to load actresses: ' + e.message, 'error');
+    } finally { setLoading(false); }
+  }, [q, filter, page, pageSize, addToast]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const syncFromJellyfin = async () => {
+    try {
+      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'jellyfin', replaceExisting:false } });
+      if (res.jobId) { onJob?.(res.jobId); addToast?.('Sync from Jellyfin started', 'ok'); }
+    } catch (e) { addToast?.('Sync failed: ' + e.message, 'error'); }
+  };
+
+  const refetchMissing = async () => {
+    const targets = data.entries.filter(e => !e.bio || !e.primaryUrl).map(e => ({ name: e.name, japaneseName: e.japaneseName, aliases: e.aliases }));
+    if (targets.length === 0) { addToast?.('Nothing to refetch on this page', 'info'); return; }
+    try {
+      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'names', names: targets, replaceExisting:true } });
+      if (res.jobId) { onJob?.(res.jobId); addToast?.(`Refetching ${targets.length} actresses`, 'ok'); }
+    } catch (e) { addToast?.('Refetch failed: ' + e.message, 'error'); }
+  };
+
+  const refetchOne = async (entry) => {
+    try {
+      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'names', names:[{ name: entry.name, japaneseName: entry.japaneseName, aliases: entry.aliases }], replaceExisting:true } });
+      if (res.jobId) { onJob?.(res.jobId); addToast?.(`Refetching ${entry.name}`, 'ok'); }
+    } catch (e) { addToast?.('Refetch failed: ' + e.message, 'error'); }
+  };
+
+  const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
+
+  return (
+    <div style={{flex:1, overflow:'auto', padding:14, display:'flex', flexDirection:'column', gap:12}}>
+      <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+        <input
+          value={q} onChange={e=>{setQ(e.target.value); setPage(1);}}
+          placeholder="Search name, JapaneseName, alias…"
+          style={{...S.field, width:280}}
+        />
+        <select value={filter} onChange={e=>{setFilter(e.target.value); setPage(1);}} style={{...S.field, width:160}}>
+          <option value="all">All ({data.total})</option>
+          <option value="missing-photo">Missing photo</option>
+          <option value="missing-bio">Missing bio</option>
+        </select>
+        <div style={{flex:1}} />
+        <button onClick={refetchMissing} style={{...S.btn}}>↻ Refetch missing on page</button>
+        <button onClick={syncFromJellyfin} style={{background:'var(--accent)', border:'none', color:'#fff', padding:'5px 14px', borderRadius:5, fontSize:12, fontWeight:600}}>
+          ⇩ Sync from Jellyfin
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:10}}>
+          {[...Array(12)].map((_,i)=><Sk key={i} h={220}/>)}
+        </div>
+      ) : data.entries.length === 0 ? (
+        <div style={{color:'var(--text-muted)', fontSize:13, textAlign:'center', padding:40}}>
+          No actresses{q ? ` matching "${q}"` : ' yet'}.<br/>
+          {q ? '' : 'Click "Sync from Jellyfin" to populate from your library.'}
+        </div>
+      ) : (
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:10}}>
+          {data.entries.map((e, i) => (
+            <div key={`${e.name}-${e.xcityId || i}`} onClick={()=>setSelected(e)} style={{background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:6, padding:8, cursor:'pointer', display:'flex', flexDirection:'column', gap:5}}>
+              {e.primaryUrl
+                ? <img src={e.primaryUrl} alt={e.name} style={{width:'100%', aspectRatio:'3/4', objectFit:'cover', borderRadius:4, background:'var(--surface)'}} onError={ev=>{ev.target.style.display='none';if(ev.target.nextSibling)ev.target.nextSibling.style.display='flex'}}/>
+                : null}
+              <div style={{width:'100%', aspectRatio:'3/4', background:'var(--surface)', borderRadius:4, display: e.primaryUrl ? 'none' : 'flex', alignItems:'center', justifyContent:'center', fontSize:36}}>👤</div>
+              <div style={{fontSize:12, fontWeight:600, lineHeight:1.3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{e.name}</div>
+              {e.japaneseName && <div style={{fontSize:10, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{e.japaneseName}</div>}
+              {e.birthdate && <div style={{fontSize:10, color:'var(--text-soft)'}}>🎂 {e.birthdate}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      <div style={{display:'flex', justifyContent:'center', alignItems:'center', gap:10, padding:8}}>
+        <button disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))} style={S.btn}>‹ Prev</button>
+        <span style={{fontSize:11, color:'var(--text-muted)'}}>Page {page} / {totalPages} · {data.total} total</span>
+        <button disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)} style={S.btn}>Next ›</button>
+      </div>
+
+      {selected && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1500}} onClick={()=>setSelected(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,width:560,maxWidth:'92vw',maxHeight:'90vh',overflow:'auto',padding:18,display:'flex',flexDirection:'column',gap:10}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <div>
+                <div style={{fontSize:18,fontWeight:600}}>{selected.name}</div>
+                {selected.japaneseName && <div style={{fontSize:13,color:'var(--text-muted)'}}>{selected.japaneseName}</div>}
+              </div>
+              <button onClick={()=>setSelected(null)} style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:20}}>×</button>
+            </div>
+            <div style={{display:'flex',gap:14}}>
+              {selected.primaryUrl && <img src={selected.primaryUrl} alt="" style={{width:160,aspectRatio:'3/4',objectFit:'cover',borderRadius:6}}/>}
+              <div style={{flex:1,display:'flex',flexDirection:'column',gap:6,fontSize:12}}>
+                {selected.birthdate && <div>🎂 <strong>{selected.birthdate}</strong></div>}
+                {selected.birthCity && <div>📍 {selected.birthCity}</div>}
+                {selected.height && <div>📏 {selected.height}</div>}
+                {selected.measurements && <div>📐 {selected.measurements}</div>}
+                {selected.bloodType && <div>🩸 {selected.bloodType}</div>}
+                {selected.hobby && <div style={{color:'var(--text-soft)'}}>Hobby: {selected.hobby}</div>}
+                {selected.specialSkill && <div style={{color:'var(--text-soft)'}}>Skill: {selected.specialSkill}</div>}
+              </div>
+            </div>
+            {selected.bio && <div style={{fontSize:12,color:'var(--text-soft)',lineHeight:1.5,whiteSpace:'pre-wrap'}}>{selected.bio}</div>}
+            {selected.aliases?.length > 0 && (
+              <div style={{borderTop:'1px solid var(--border)',paddingTop:8}}>
+                <div style={{fontSize:10,color:'var(--text-muted)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.06em'}}>Aliases</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                  {selected.aliases.map((a,i)=><span key={i} style={{background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:3,padding:'2px 8px',fontSize:11,color:'var(--text-soft)'}}>{a}</span>)}
+                </div>
+              </div>
+            )}
+            {selected.xcityUrl && (
+              <div style={{display:'flex',gap:8,alignItems:'center',borderTop:'1px solid var(--border)',paddingTop:8}}>
+                <a href={selected.xcityUrl} target="_blank" rel="noreferrer" style={{fontSize:11,color:'var(--accent-light)'}}>↗ xcity profile</a>
+                <div style={{flex:1}}/>
+                <button onClick={()=>refetchOne(selected)} style={{...S.btn, fontSize:11}}>↻ Refetch from xcity</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -951,24 +1161,136 @@ function MetadataForm({ data, onChange }) {
 
 // ─── Actress Panel ────────────────────────────────────────────────────────────
 
-function ActressPanel({ actresses }) {
+function ActressPanel({ actresses, onJob }) {
+  const [enriched, setEnriched] = useState({}); // index -> data from /api/actresses/lookup
+  const [busy, setBusy] = useState(false);
+  const [bioOpen, setBioOpen] = useState(null);
+
+  // Fetch xcity-enriched data for the current actress array on mount/change.
+  useEffect(() => {
+    if (!actresses?.length) { setEnriched({}); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const names = actresses.map(a => ({
+          name: [a.LastName, a.FirstName].filter(Boolean).join(' ') || a.Name || '',
+          japaneseName: a.JapaneseName || '',
+          aliases: a.Aliases || [],
+        }));
+        const res = await api('/api/actresses/lookup', { method:'POST', body:{ names, autoEnrich:true } });
+        if (cancelled) return;
+        const map = {};
+        (res.hits || []).forEach((h, i) => { if (h.matched) map[i] = h.data; });
+        setEnriched(map);
+        if (res.jobId && onJob) onJob(res.jobId);
+      } catch (e) { /* silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, [actresses]);
+
+  const refresh = async () => {
+    if (!actresses?.length) return;
+    setBusy(true);
+    try {
+      const names = actresses.map(a => ({
+        name: [a.LastName, a.FirstName].filter(Boolean).join(' ') || a.Name || '',
+        japaneseName: a.JapaneseName || '',
+        aliases: a.Aliases || [],
+      })).filter(n => n.name);
+      const res = await api('/api/actresses/refresh', {
+        method:'POST',
+        body:{ source:'names', names, replaceExisting:true },
+      });
+      if (res.jobId && onJob) onJob(res.jobId);
+    } catch (e) { /* surface via toast in caller if needed */ }
+    finally { setBusy(false); }
+  };
+
   if (!actresses?.length) return <div style={{color:'var(--text-muted)', fontSize:12, padding:12, textAlign:'center'}}>No actress data</div>;
+
   return (
-    <div style={{display:'flex', gap:12, flexWrap:'wrap'}}>
-      {actresses.map((a, i) => {
-        const name = [a.LastName, a.FirstName].filter(Boolean).join(' ') || a.Name || '—';
-        return (
-          <div key={i} style={{background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:6, padding:10, display:'flex', flexDirection:'column', gap:6, width:140}}>
-            {a.ThumbUrl
-              ? <img src={a.ThumbUrl} alt={name} style={{width:'100%', aspectRatio:'3/4', objectFit:'cover', borderRadius:4, background:'var(--surface)'}} onError={e=>{e.target.style.display='none';e.target.nextSibling.style.display='flex'}} />
-              : null
-            }
-            <div style={{width:'100%', aspectRatio:'3/4', background:'var(--surface)', borderRadius:4, display: a.ThumbUrl ? 'none' : 'flex', alignItems:'center', justifyContent:'center', fontSize:32}}>👤</div>
-            <div style={{fontSize:13, fontWeight:600, lineHeight:1.3}}>{name}</div>
-            {a.JapaneseName && <div style={{fontSize:11, color:'var(--text-muted)'}}>{a.JapaneseName}</div>}
+    <div>
+      <div style={{display:'flex', justifyContent:'flex-end', marginBottom:8}}>
+        <button onClick={refresh} disabled={busy} style={{...S.btn, fontSize:11}}>
+          {busy ? '…' : '↻'} Refresh from xcity
+        </button>
+      </div>
+      <div style={{display:'flex', gap:12, flexWrap:'wrap'}}>
+        {actresses.map((a, i) => {
+          const baseName = [a.LastName, a.FirstName].filter(Boolean).join(' ') || a.Name || '—';
+          const x = enriched[i];
+          const photo = (x && x.primaryUrl) || a.ThumbUrl;
+          const name = (x && x.name) || baseName;
+          const jp = (x && x.japaneseName) || a.JapaneseName;
+          const aliases = (x && x.aliases) || [];
+          return (
+            <div key={i} style={{background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:6, padding:10, display:'flex', flexDirection:'column', gap:6, width:180}}>
+              {photo
+                ? <img src={photo} alt={name} style={{width:'100%', aspectRatio:'3/4', objectFit:'cover', borderRadius:4, background:'var(--surface)'}} onError={e=>{e.target.style.display='none';if(e.target.nextSibling)e.target.nextSibling.style.display='flex'}} />
+                : null
+              }
+              <div style={{width:'100%', aspectRatio:'3/4', background:'var(--surface)', borderRadius:4, display: photo ? 'none' : 'flex', alignItems:'center', justifyContent:'center', fontSize:32}}>👤</div>
+              <div style={{fontSize:13, fontWeight:600, lineHeight:1.3}}>{name}</div>
+              {jp && <div style={{fontSize:11, color:'var(--text-muted)'}}>{jp}</div>}
+              {aliases.length > 0 && (
+                <div style={{display:'flex', flexWrap:'wrap', gap:3, marginTop:2}}>
+                  {aliases.slice(0, 3).map((al, j) => (
+                    <span key={j} style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:3, padding:'1px 5px', fontSize:9, color:'var(--text-soft)'}}>{al}</span>
+                  ))}
+                  {aliases.length > 3 && <span style={{fontSize:9, color:'var(--text-muted)'}}>+{aliases.length - 3}</span>}
+                </div>
+              )}
+              {x && (x.birthdate || x.height || x.measurements) && (
+                <div style={{fontSize:10, color:'var(--text-muted)', display:'flex', flexDirection:'column', gap:2, lineHeight:1.4}}>
+                  {x.birthdate && <span>🎂 {x.birthdate}</span>}
+                  {x.height && <span>📏 {x.height}</span>}
+                  {x.measurements && <span>📐 {x.measurements}</span>}
+                </div>
+              )}
+              {x && x.bio && (
+                <div
+                  onClick={()=>setBioOpen({ name, jp, aliases, bio:x.bio, photo, birthdate:x.birthdate, height:x.height, measurements:x.measurements, birthCity:x.birthCity })}
+                  style={{fontSize:10, color:'var(--text-soft)', cursor:'pointer', maxHeight:34, overflow:'hidden', textOverflow:'ellipsis', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical'}}
+                  title="Click to expand"
+                >
+                  {x.bio}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {bioOpen && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1500}} onClick={()=>setBioOpen(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,width:520,maxWidth:'92vw',padding:18,display:'flex',flexDirection:'column',gap:10}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:600}}>{bioOpen.name}</div>
+                {bioOpen.jp && <div style={{fontSize:12,color:'var(--text-muted)'}}>{bioOpen.jp}</div>}
+              </div>
+              <button onClick={()=>setBioOpen(null)} style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:18}}>×</button>
+            </div>
+            <div style={{display:'flex',gap:14}}>
+              {bioOpen.photo && <img src={bioOpen.photo} alt="" style={{width:120,aspectRatio:'3/4',objectFit:'cover',borderRadius:4}} />}
+              <div style={{flex:1,fontSize:12,display:'flex',flexDirection:'column',gap:4}}>
+                {bioOpen.birthdate && <div>🎂 {bioOpen.birthdate}</div>}
+                {bioOpen.birthCity && <div>📍 {bioOpen.birthCity}</div>}
+                {bioOpen.height && <div>📏 {bioOpen.height}</div>}
+                {bioOpen.measurements && <div>📐 {bioOpen.measurements}</div>}
+              </div>
+            </div>
+            <div style={{fontSize:12,color:'var(--text-soft)',lineHeight:1.5,whiteSpace:'pre-wrap'}}>{bioOpen.bio}</div>
+            {bioOpen.aliases?.length > 0 && (
+              <div style={{borderTop:'1px solid var(--border)',paddingTop:8}}>
+                <div style={{fontSize:10,color:'var(--text-muted)',marginBottom:4}}>Aliases</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                  {bioOpen.aliases.map((a,i)=><span key={i} style={{background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:3,padding:'2px 7px',fontSize:11,color:'var(--text-soft)'}}>{a}</span>)}
+                </div>
+              </div>
+            )}
           </div>
-        );
-      })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1303,7 +1625,7 @@ function PosterPicker({ data, onPick }) {
 
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
 
-function DetailPanel({ file, videos, selectedIdx, onNavigate, onFileSorted, settings, addToast }) {
+function DetailPanel({ file, videos, selectedIdx, onNavigate, onFileSorted, settings, addToast, onJob }) {
   const [data, setData] = useState(null);
   const [original, setOriginal] = useState(null);
   const [scraping, setScraping] = useState(false);
@@ -1472,7 +1794,7 @@ function DetailPanel({ file, videos, selectedIdx, onNavigate, onFileSorted, sett
             ) : tab==='metadata' ? (
               <MetadataForm data={data} onChange={handleFieldChange} />
             ) : tab==='actresses' ? (
-              <ActressPanel actresses={data?.Actress} />
+              <ActressPanel actresses={data?.Actress} onJob={onJob} />
             ) : (
               <pre style={{margin:0, fontSize:11, fontFamily:'var(--mono)', color:'var(--text-soft)', whiteSpace:'pre-wrap', wordBreak:'break-all', lineHeight:1.6}}>
                 {JSON.stringify(data, null, 2)}
@@ -1516,6 +1838,8 @@ function App() {
   const [sortedPaths, setSortedPaths] = useState(() => new Set());
   const [serverSettings, setServerSettings] = useState(null);
   const [showManualScrape, setShowManualScrape] = useState(false);
+  const [view, setView] = useState('sort'); // 'sort' | 'library'
+  const [activeJobId, setActiveJobId] = useState(null);
 
   // Persist settings
   useEffect(() => { localStorage.setItem('jv-settings', JSON.stringify(settings)); }, [settings]);
@@ -1614,25 +1938,33 @@ function App() {
 
   return (
     <div style={{display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg)', color:'var(--text)', fontFamily:'var(--sans)', overflow:'hidden'}}>
-      <Header showSettings={showSettings} setShowSettings={setShowSettings} onHelp={()=>setShowHelp(true)} onSortAll={()=>setShowSortAll(true)} onManualScrape={()=>setShowManualScrape(true)} videoCount={videos.length} />
-      {showSettings && <SortSettings s={settings} set={setSettings} serverSettings={serverSettings} onSaveDefaults={handleSaveDefaults} onResetToSaved={handleResetToSaved} addToast={add} />}
+      <Header showSettings={showSettings} setShowSettings={setShowSettings} onHelp={()=>setShowHelp(true)} onSortAll={()=>setShowSortAll(true)} onManualScrape={()=>setShowManualScrape(true)} videoCount={videos.length} view={view} setView={setView} />
+      {activeJobId && <JobProgressBar jobId={activeJobId} onDone={() => setActiveJobId(null)} />}
+      {showSettings && view === 'sort' && <SortSettings s={settings} set={setSettings} serverSettings={serverSettings} onSaveDefaults={handleSaveDefaults} onResetToSaved={handleResetToSaved} addToast={add} />}
       <div style={{flex:1, display:'flex', overflow:'hidden'}}>
-        {/* Sidebar */}
-        <div style={{width:268, flexShrink:0, borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-          <FileBrowser selected={selectedFile} onSelect={handleSelect} onVideosChange={handleVideosChange} recurse={settings.recurse} sortedPaths={sortedPaths} initialPath={settings.src} />
-        </div>
-        {/* Detail */}
-        <div style={{flex:1, overflow:'hidden', display:'flex', flexDirection:'column'}}>
-          <DetailPanel
-            file={selectedFile}
-            videos={videos}
-            selectedIdx={selectedIdx}
-            onNavigate={handleNavigate}
-            onFileSorted={handleFileSorted}
-            settings={settings}
-            addToast={add}
-          />
-        </div>
+        {view === 'library' ? (
+          <ActressLibrary onJob={setActiveJobId} addToast={add} />
+        ) : (
+          <>
+            {/* Sidebar */}
+            <div style={{width:268, flexShrink:0, borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', overflow:'hidden'}}>
+              <FileBrowser selected={selectedFile} onSelect={handleSelect} onVideosChange={handleVideosChange} recurse={settings.recurse} sortedPaths={sortedPaths} initialPath={settings.src} />
+            </div>
+            {/* Detail */}
+            <div style={{flex:1, overflow:'hidden', display:'flex', flexDirection:'column'}}>
+              <DetailPanel
+                file={selectedFile}
+                videos={videos}
+                selectedIdx={selectedIdx}
+                onNavigate={handleNavigate}
+                onFileSorted={handleFileSorted}
+                settings={settings}
+                addToast={add}
+                onJob={setActiveJobId}
+              />
+            </div>
+          </>
+        )}
       </div>
       <ToastHost toasts={toasts} remove={remove} />
       {showHelp && <HelpModal onClose={()=>setShowHelp(false)} />}

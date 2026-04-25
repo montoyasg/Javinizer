@@ -14,9 +14,18 @@ function Get-JVActressDatasetPath {
     param([switch]$BundledSeed)
 
     if ($BundledSeed) {
-        return Join-Path ((Get-Item $PSScriptRoot).Parent.Parent) 'jvActresses.json'
+        $base = if ($env:JVWEB_LIB) {
+            (Get-Item $env:JVWEB_LIB).Parent.Parent.FullName
+        } elseif ($PSScriptRoot) {
+            (Get-Item $PSScriptRoot).Parent.Parent.FullName
+        } else {
+            return $null
+        }
+        return Join-Path $base 'jvActresses.json'
     }
-    return Join-Path -Path $HOME -ChildPath '.jvsettings/jvActresses.json'
+
+    $homeDir = if ($HOME) { $HOME } elseif ($env:HOME) { $env:HOME } elseif ($env:USERPROFILE) { $env:USERPROFILE } else { '.' }
+    return Join-Path -Path $homeDir -ChildPath '.jvsettings/jvActresses.json'
 }
 
 function ConvertTo-JVActressKey {
