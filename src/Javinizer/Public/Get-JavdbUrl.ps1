@@ -50,18 +50,27 @@ function Get-JavdbUrl {
             return
         }
 
-        $results = $webRequest.Links | Where-Object { $null -ne $_.title }
+        # JavDB search results are <a class="box" href="/v/xxx" ...> elements wrapping
+        # inner divs. Each link's outerHTML contains:
+        #   <div class="video-title"><strong>SNOS-189</strong> Title text...</div>
+        # The legacy <div class="uid"> selector no longer exists on the site, so we
+        # extract the ID from the <strong> tag instead.
+        $results = $webRequest.Links | Where-Object {
+            $_.href -and $_.href -match '^/v/[^/]+$'
+        }
 
-        try {
-            $resultObject = $results | ForEach-Object {
-                [PSCustomObject]@{
-                    Id    = (($_.outerHTML) | Select-String -Pattern '<div class="uid">(.*)<\/div>').Matches.Groups[1].Value
-                    Title = (($_.outerHTML) | Select-String -Pattern '<div class="video-title">(.*)<\/div>').Matches.Groups[1].Value
-                    Url   = "https://javdb.com" + $_.href
-                }
+        $resultObject = foreach ($link in $results) {
+            $idMatch = [regex]::Match($link.outerHTML, '<strong>([^<]+)</strong>')
+            $titleMatch = [regex]::Match(
+                $link.outerHTML,
+                '<div class="video-title">\s*(?:<strong>[^<]+</strong>)?\s*([^<]*)</div>'
+            )
+
+            [PSCustomObject]@{
+                Id    = if ($idMatch.Success) { $idMatch.Groups[1].Value.Trim() } else { '' }
+                Title = if ($titleMatch.Success) { $titleMatch.Groups[1].Value.Trim() } else { '' }
+                Url   = "https://javdb.com" + $link.href
             }
-        } catch {
-            # Do nothing
         }
 
         try {
