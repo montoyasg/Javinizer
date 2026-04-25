@@ -38,6 +38,15 @@ function Get-R18DevData {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Error [GET] on URL [$Url]: $PSItem" -Action 'Continue'
         }
 
+        # Field extractors below all declare $Webrequest as Mandatory, so a null
+        # response from the R18 API would surface as a terminating
+        # parameter-binding error that bubbles past callers' SilentlyContinue.
+        # Bail out cleanly so the caller can fall back to javdb.
+        if (-not $webRequest) {
+            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$($MyInvocation.MyCommand.Name)] R18Dev returned no body for [$apiUrl]; returning null"
+            return
+        }
+
         $movieDataObject = [PSCustomObject]@{
             Source        = if ($Ja) { 'r18dev-ja' } else { 'r18dev' }
             Url           = $Url

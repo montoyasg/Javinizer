@@ -54,12 +54,20 @@ function Get-R18DevUrl {
             if ($null -ne $webRequest) {
                 $resultId = Get-R18DevId -WebRequest $webRequest
                 Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Result is [$resultId]"
-                if ($resultId -eq $Id) {
+                # Loose comparison: strip leading zeros from the numeric suffix and
+                # uppercase. R18.dev sometimes returns dvd_id as "ABF-00343" while
+                # callers pass "ABF-343" (or vice-versa); a strict -eq here was
+                # silently dropping legitimate hits and forcing javdb fallback.
+                $normResult = ($resultId -replace '-0*(\d)', '-$1').ToUpper().Trim()
+                $normInput = ($Id -replace '-0*(\d)', '-$1').ToUpper().Trim()
+                if ($normResult -eq $normInput) {
                     $resultObject = [PSCustomObject]@{
                         Id    = $resultId
                         Title = Get-R18DevTitle -Webrequest $webRequest
                         Url   = $testUrl
                     }
+                } else {
+                    Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] R18Dev dvd_id [$resultId] (norm [$normResult]) does not match input (norm [$normInput]); falling through"
                 }
             } else {
                 Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$Id] [$($MyInvocation.MyCommand.Name)] not matched on R18Dev"

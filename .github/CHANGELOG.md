@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.0.3] - 2026-04-25
+
+### Fixed
+
+- R18.dev hits no longer fall through to javdb because of leading-zero
+  formatting differences. `Get-R18DevUrl` did a strict string equality
+  check between R18's returned `dvd_id` and the user's input ID
+  (e.g. R18's `ABF-00343` vs caller's `ABF-343`); a mismatch silently
+  dropped the result and triggered the javdb fallback. The comparison
+  is now leading-zero-tolerant and case-insensitive, with a debug log
+  on the (now rare) genuine mismatch case so future regressions are
+  traceable.
+- "Scrape failed: Cannot bind argument to parameter 'Webrequest'
+  because it is null" surfaced to the UI when `Get-R18DevData`'s
+  upstream API call failed (network blip, R18 transient error, etc.).
+  The catch block logged but didn't return, so the next line passed
+  a null `$webRequest` to field-extractor functions whose mandatory
+  parameter binding raised a terminating error that bubbled past the
+  caller's `-ErrorAction SilentlyContinue`. Added an explicit null
+  guard so an R18 fetch failure now returns null cleanly and the
+  caller falls back to javdb instead of erroring.
+
 ## [1.0.2] - 2026-04-25
 
 ### Fixed
