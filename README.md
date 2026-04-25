@@ -59,6 +59,25 @@ docker run -d --name javinizer-ng \
 - **Settings** — JVWeb writes user preferences to `/root/.jvsettings/jvSettings.json` inside the container. To start from the bundled defaults, copy [`src/Javinizer/jvSettings.json`](./src/Javinizer/jvSettings.json) into the `jvweb-settings` volume before first launch.
 - **Translation.** The built-in `google_web` module needs no extra dependencies and is selected by default when translation is toggled on from the JVWeb UI. Python-backed modules (`googletrans`, `google_trans_new`, `deepl`) are only invoked if you switch `sort.metadata.nfo.translate.module` in `jvSettings.json`; they require `docker exec javinizer-ng pip3 install <package>` first.
 
+#### Host file ownership
+
+By default the container runs as root, so files written during sort are owned by `root:root` on the host — unplayable / unmodifiable from SMB clients, Plex, Jellyfin, and `*arr` containers. Pass `PUID` / `PGID` to take ownership of sorted output.
+
+**Unraid (most common).** Use the standard `nobody:users` IDs that match every LinuxServer.io / community-template container. In the Docker template UI, add:
+
+- `PUID` = `99`
+- `PGID` = `100`
+
+**Other Linux / macOS workstation.** Use your own host user/group:
+
+```bash
+docker run \
+  -e PUID=$(id -u) -e PGID=$(id -g) \
+  ... montoyasg/javinizer-ng:latest
+```
+
+When `PUID` / `PGID` are set, sort runs `chown -R` on the destination folder after each move. Leave them unset to keep the legacy root-ownership behavior.
+
 ### Running from source (development)
 
 For contributors or users who prefer not to use Docker:

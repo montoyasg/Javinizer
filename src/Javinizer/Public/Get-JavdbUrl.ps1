@@ -50,26 +50,24 @@ function Get-JavdbUrl {
             return
         }
 
-        # JavDB search results are <a class="box" href="/v/xxx" ...> elements wrapping
-        # inner divs. Each link's outerHTML contains:
-        #   <div class="video-title"><strong>SNOS-189</strong> Title text...</div>
-        # The legacy <div class="uid"> selector no longer exists on the site, so we
-        # extract the ID from the <strong> tag instead.
-        $results = $webRequest.Links | Where-Object {
-            $_.href -and $_.href -match '^/v/[^/]+$'
-        }
+        # Each Javdb search result is <a class="box" href="/v/SLUG"> ... <strong>CODE</strong> ...
+        # in document order. PowerShell's basic HTML parsing on Linux/macOS pwsh
+        # collapses .Links[].outerHTML to plain text and drops nested tags, so
+        # we scan the raw response body directly to keep the <strong> markup.
+        $pattern = '<a\s+[^>]*?\bhref="(/v/[^"]+)"[^>]*?>.*?<strong>([^<]+)</strong>'
+        $searchMatches = [regex]::Matches(
+            $webRequest.Content,
+            $pattern,
+            [System.Text.RegularExpressions.RegexOptions]::Singleline
+        )
 
-        $resultObject = foreach ($link in $results) {
-            $idMatch = [regex]::Match($link.outerHTML, '<strong>([^<]+)</strong>')
-            $titleMatch = [regex]::Match(
-                $link.outerHTML,
-                '<div class="video-title">\s*(?:<strong>[^<]+</strong>)?\s*([^<]*)</div>'
-            )
+        Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug `
+            -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Search returned [$($searchMatches.Count)] candidate result(s)"
 
+        $resultObject = foreach ($m in $searchMatches) {
             [PSCustomObject]@{
-                Id    = if ($idMatch.Success) { $idMatch.Groups[1].Value.Trim() } else { '' }
-                Title = if ($titleMatch.Success) { $titleMatch.Groups[1].Value.Trim() } else { '' }
-                Url   = "https://javdb.com" + $link.href
+                Id  = $m.Groups[2].Value.Trim()
+                Url = "https://javdb.com" + $m.Groups[1].Value
             }
         }
 
@@ -89,10 +87,9 @@ function Get-JavdbUrl {
 
             $urlObject = foreach ($entry in $matchedResult) {
                 [PSCustomObject]@{
-                    En    = $entry.Url + "?locale=en"
-                    Zh    = $entry.Url + "?locale=zh"
-                    Id    = $entry.Id
-                    Title = $entry.Title
+                    En = $entry.Url + "?locale=en"
+                    Zh = $entry.Url + "?locale=zh"
+                    Id = $entry.Id
                 }
             }
 

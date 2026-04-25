@@ -145,6 +145,19 @@ public class ExtendedWebClient : WebClient {
 
             return $webClient
         }
+
+        function Set-JVDestinationOwnership {
+            param([string]$Path)
+            if (-not $IsLinux) { return }
+            if (-not $env:PUID -or -not $env:PGID) { return }
+            if (-not (Test-Path -LiteralPath $Path)) { return }
+            try {
+                & chown -R "$($env:PUID):$($env:PGID)" $Path 2>$null
+            } catch {
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug `
+                    -Message "[$($MyInvocation.MyCommand.Name)] chown skipped for [$Path]: $PSItem"
+            }
+        }
     }
 
     process {
@@ -555,6 +568,10 @@ public class ExtendedWebClient : WebClient {
                     }
                 }
             }
+        }
+
+        if ($sortData -and $sortData.FolderPath) {
+            Set-JVDestinationOwnership -Path $sortData.FolderPath
         }
     }
 }

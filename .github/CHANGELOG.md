@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.0.2] - 2026-04-25
+
+### Fixed
+
+- Javdb code-to-URL lookup re-fixed. The v1.0.0 fix relied on parsing
+  nested HTML inside PowerShell's `.Links[].outerHTML`, but basic-parsing
+  on Linux pwsh (the Docker runtime) flattens nested tags to plain text,
+  so the regex never matched. Search-result parsing now scans
+  `$webRequest.Content` directly with a single multiline regex. Codes
+  like `GOV-004` and `SNOS-189` resolve to their `/v/<slug>` URLs again.
+  Added a debug log that reports candidate count to distinguish
+  Cloudflare-blocked bodies from real "no match" cases in future.
+- Filename code extraction now strips generic `domain.tld@` prefixes
+  (e.g. `4k2.me@abf-343.mp4`, `hjd2048.tv@SNOS-189.mp4`) via a new entry
+  in `Convert-JVTitle`'s `$RemoveStrings`. Previously only `.com@` /
+  `.org@` were handled, so `.me@`, `.la@`, `.tv@`, etc. survived and
+  the downstream regex mangled the result.
+
+### Added
+
+- `PUID` / `PGID` env-var support. When set, `Set-JVMovie` runs
+  `chown -R` on the destination folder after each successful sort so
+  files land owned by the host user instead of `root:root`. Required
+  for Unraid (`PUID=99 PGID=100`) and any host where SMB clients,
+  Plex / Jellyfin, or other non-root containers need to read or modify
+  the sorted output. Unset = legacy behavior preserved.
+
 ## [1.0.1] - 2026-04-25
 
 ### Fixed
