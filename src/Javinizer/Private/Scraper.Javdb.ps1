@@ -21,13 +21,18 @@ function Get-JavdbTitle {
         [Object]$Webrequest
     )
     process {
+        # The detail page renders the title as <strong class="current-title">...</strong>.
+        # The legacy parser split <title> on whitespace and took index [2], which only
+        # ever returned the first word of the title.
         try {
-            $title = (($Webrequest.Content | Select-String -Pattern '<title>.*<\/title>').Matches.Groups[0].Value -split ' ')[2]
+            $title = ($Webrequest.Content | Select-String -Pattern '<strong class="current-title">([^<]+)<\/strong>').Matches.Groups[1].Value
         } catch {
             return
         }
 
-        $title = Convert-HtmlCharacter -String $title
+        if ([string]::IsNullOrWhiteSpace($title)) { return }
+
+        $title = Convert-HtmlCharacter -String $title.Trim()
         Write-Output $title
     }
 }
