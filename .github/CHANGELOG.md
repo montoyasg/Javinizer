@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.0.1] - 2026-04-25
+
+### Fixed
+
+- `Get-JavdbTitle` returned only the first word of the movie title because
+  the legacy parser split the page `<title>` on whitespace and took index
+  `[2]`. Switched to the `<strong class="current-title">` selector
+  ([stashapp/CommunityScrapers](https://github.com/stashapp/CommunityScrapers/blob/master/scrapers/javdb.yml)
+  uses the same), so the full title now reaches the aggregator.
+
 ## [1.0.0] - 2026-04-25
 
 First release of the **NG fork** ([montoyasg/javinizer-ng](https://github.com/montoyasg/javinizer-ng)).
