@@ -62,9 +62,10 @@ function Get-R18DevUrl {
                 $normInput = ($Id -replace '-0*(\d)', '-$1').ToUpper().Trim()
                 if ($normResult -eq $normInput) {
                     $resultObject = [PSCustomObject]@{
-                        Id    = $resultId
-                        Title = Get-R18DevTitle -Webrequest $webRequest
-                        Url   = $testUrl
+                        Id       = $resultId
+                        Title    = Get-R18DevTitle -Webrequest $webRequest
+                        Url      = $testUrl
+                        Response = $webRequest
                     }
                 } else {
                     Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] R18Dev dvd_id [$resultId] (norm [$normResult]) does not match input (norm [$normInput]); falling through"

@@ -10,20 +10,20 @@ function Get-R18DevData {
         [Switch]$Ja,
 
         [Parameter()]
-        [System.IO.FileInfo]$UncensorCsvPath = (Join-Path -Path ((Get-Item $PSScriptRoot).Parent) -ChildPath 'jvUncensor.csv')
+        [System.IO.FileInfo]$UncensorCsvPath = (Join-Path -Path ((Get-Item $PSScriptRoot).Parent) -ChildPath 'jvUncensor.csv'),
+
+        # Optional pre-fetched JSON body. When supplied (e.g. by Get-R18DevUrl
+        # which already hit the same combined= endpoint to validate the
+        # dvd_id ↔ content_id mapping), we skip the redundant request — R18
+        # rate-limits tight back-to-back hits to the same URL and used to
+        # silently return an empty body, forcing a javdb fallback for titles
+        # that R18 actually had.
+        [Parameter()]
+        [PSObject]$PreFetched
     )
 
     process {
         $movieDataObject = @()
-        if ($Url -like '*id=*') {
-            $contentId = (($Url -split 'id=')[1] -split '\/')[0]
-        } elseif ($Url -like '*combined=*') {
-            $contentId = (($Url -split 'combined=')[1] -split '\/')[0]
-        } else {
-            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Invalid URL provided [$Url]: $PSItem"
-        }
-
-        $apiUrl = "https://r18.dev/videos/vod/movies/detail/-/combined=$($contentId)/json"
 
         try {
             $replaceHashtable = Import-Csv -LiteralPath $UncensorCsvPath
@@ -31,11 +31,25 @@ function Get-R18DevData {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Error occurred when import uncensor csv at path [$UncensorCsvPath]: $PSItem"
         }
 
-        try {
-            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] Performing [GET] on URL [$apiUrl]"
-            $webRequest = (Invoke-WebRequest -Uri $apiUrl -UserAgent $UserAgent -Method Get -Verbose:$false).Content | ConvertFrom-Json
-        } catch {
-            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Error [GET] on URL [$Url]: $PSItem" -Action 'Continue'
+        if ($PreFetched) {
+            $webRequest = $PreFetched
+        } else {
+            if ($Url -like '*id=*') {
+                $contentId = (($Url -split 'id=')[1] -split '\/')[0]
+            } elseif ($Url -like '*combined=*') {
+                $contentId = (($Url -split 'combined=')[1] -split '\/')[0]
+            } else {
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Invalid URL provided [$Url]: $PSItem"
+            }
+
+            $apiUrl = "https://r18.dev/videos/vod/movies/detail/-/combined=$($contentId)/json"
+
+            try {
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] Performing [GET] on URL [$apiUrl]"
+                $webRequest = (Invoke-WebRequest -Uri $apiUrl -UserAgent $UserAgent -Method Get -Verbose:$false).Content | ConvertFrom-Json
+            } catch {
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Error [GET] on URL [$Url]: $PSItem" -Action 'Continue'
+            }
         }
 
         # Field extractors below all declare $Webrequest as Mandatory, so a null
@@ -43,7 +57,7 @@ function Get-R18DevData {
         # parameter-binding error that bubbles past callers' SilentlyContinue.
         # Bail out cleanly so the caller can fall back to javdb.
         if (-not $webRequest) {
-            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$($MyInvocation.MyCommand.Name)] R18Dev returned no body for [$apiUrl]; returning null"
+            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$($MyInvocation.MyCommand.Name)] R18Dev returned no body for [$Url]; returning null"
             return
         }
 

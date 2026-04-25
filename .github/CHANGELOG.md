@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.0.4] - 2026-04-25
+
+### Fixed
+
+- R18.dev hits no longer fall through to javdb because of upstream
+  rate-limiting on tight back-to-back requests to the same URL. The
+  scraper used to make two `combined=$content_id/json` requests per
+  scrape — one inside `Get-R18DevUrl` (purely to validate the
+  dvd_id ↔ content_id mapping, body discarded) and a second one inside
+  `Get-R18DevData` to actually build the metadata. R18 returned an
+  empty body on the second hit for some titles, which the v1.0.3 null
+  guard correctly handled but at the cost of a fallback to javdb for
+  titles R18 actually had. `Get-R18DevUrl` now threads the parsed JSON
+  forward via a `Response` field on its result; `Get-R18DevData`
+  accepts a new optional `-PreFetched` parameter and skips the
+  redundant fetch when set; `Invoke-JVScrapeCached` plumbs the two
+  together. Net effect: half as many requests to r18.dev per scrape,
+  no more rate-limit-induced fallbacks.
+
 ## [1.0.3] - 2026-04-25
 
 ### Fixed

@@ -47,7 +47,7 @@ function Invoke-JVScrapeCached {
         # ID path: R18.dev primary, javdb fallback.
         $urlObj = Get-R18DevUrl -Id $Id -ErrorAction SilentlyContinue
         if ($urlObj) {
-            $data = Get-R18DevData -Url $urlObj.Url -ErrorAction SilentlyContinue
+            $data = Get-R18DevData -Url $urlObj.Url -PreFetched $urlObj.Response -ErrorAction SilentlyContinue
         }
 
         if (-not $data -and $fallbackEnabled) {
