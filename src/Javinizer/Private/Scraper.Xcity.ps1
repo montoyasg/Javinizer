@@ -21,6 +21,82 @@ if (-not $script:XcityUserAgent) {
 
 $script:XcityBaseUrl = 'https://xxx.xcity.jp'
 
+# ── Disk cache ────────────────────────────────────────────────────────────────
+# Stores xcity responses under ~/.javinizer/xcity-cache/<sha256(uri)>.json so
+# repeated runs within the TTL serve from disk and avoid hammering the site.
+# Search-results TTL is shorter than detail-page TTL because search hits can
+# shift (new actresses, alias changes); detail pages are nearly immutable.
+
+function Get-XcityCacheDir {
+    $homeDir = if ($env:HOME) { $env:HOME } elseif ($HOME) { $HOME } elseif ($env:USERPROFILE) { $env:USERPROFILE } else { '.' }
+    $dir = Join-Path $homeDir '.javinizer/xcity-cache'
+    if (-not (Test-Path -LiteralPath $dir)) {
+        try { New-Item -ItemType Directory -Path $dir -Force | Out-Null } catch {}
+    }
+    return $dir
+}
+
+function Get-XcityCacheKey {
+    param([Parameter(Mandatory)][string]$Uri)
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Uri)
+    $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+    return ([System.BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
+}
+
+function Get-XcityCacheTtlForUri {
+    param([Parameter(Mandatory)][string]$Uri)
+    if ($Uri -match '/idol/detail/\d+/') { return 14 * 24 * 60 * 60 }   # 14 days
+    if ($Uri -match '/idol/\?q=')        { return 24 * 60 * 60 }        # 24 hours
+    return 60 * 60                                                       # 1 hour fallback
+}
+
+function Get-XcityCachedResponse {
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][int]$MaxAgeSeconds
+    )
+    $path = Join-Path (Get-XcityCacheDir) "$(Get-XcityCacheKey $Uri).json"
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    try {
+        $entry = Get-Content -LiteralPath $path -Raw -Encoding utf8 | ConvertFrom-Json
+        # ConvertFrom-Json auto-coerces ISO timestamps into DateTime under
+        # PS 7+. If we get a string back (older PS or non-ISO format) parse
+        # it via invariant culture so we don't trip on locale formatting.
+        $fetched = if ($entry.fetchedAt -is [DateTime]) {
+            $entry.fetchedAt.ToUniversalTime()
+        } else {
+            [DateTime]::Parse([string]$entry.fetchedAt, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        }
+        $ageSec = ((Get-Date).ToUniversalTime() - $fetched).TotalSeconds
+        if ($ageSec -gt $MaxAgeSeconds) { return $null }
+        return $entry
+    } catch {
+        return $null
+    }
+}
+
+function Set-XcityCachedResponse {
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][int]$StatusCode,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Content
+    )
+    $path = Join-Path (Get-XcityCacheDir) "$(Get-XcityCacheKey $Uri).json"
+    $entry = [ordered]@{
+        url        = $Uri
+        fetchedAt  = (Get-Date).ToUniversalTime().ToString('o')
+        statusCode = $StatusCode
+        content    = $Content
+    }
+    try {
+        $tmp = "$path.tmp"
+        [System.IO.File]::WriteAllText($tmp, ($entry | ConvertTo-Json -Depth 4 -Compress), [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $tmp -Destination $path -Force
+    } catch {
+        # Cache writes are best-effort; never let them fail the request.
+    }
+}
+
 function Invoke-XcityRequest {
     [CmdletBinding()]
     param(
@@ -33,8 +109,25 @@ function Invoke-XcityRequest {
 
         [int[]]$DelayRangeMs = @(600, 1500),
 
-        [int]$MaxRetries = 4
+        [int]$MaxRetries = 4,
+
+        # Bypass the disk cache for this request (still writes back on success).
+        [switch]$NoCache
     )
+
+    # Cache check (default-on). If a fresh cached response exists for this
+    # URL, return it without touching the network.
+    if (-not $NoCache) {
+        $ttl = Get-XcityCacheTtlForUri -Uri $Uri
+        $cached = Get-XcityCachedResponse -Uri $Uri -MaxAgeSeconds $ttl
+        if ($cached) {
+            return [PSCustomObject]@{
+                Content    = $cached.content
+                StatusCode = $cached.statusCode
+                FromCache  = $true
+            }
+        }
+    }
 
     # Polite jittered delay between requests within a session.
     if ($Session.Cookies.Count -gt 0) {
@@ -79,10 +172,37 @@ function Invoke-XcityRequest {
             if ($response.Content -match '(?i)access denied|cloudflare|captcha|challenge-platform') {
                 throw "[Xcity] response body suggests a block/captcha at [$Uri]"
             }
+
+            # Persist to disk cache on success so future runs short-circuit
+            # the network. Best-effort — failures here don't fail the request.
+            try { Set-XcityCachedResponse -Uri $Uri -StatusCode ([int]$response.StatusCode) -Content $response.Content } catch {}
+
             return $response
         } catch {
             $statusCode = $null
             try { $statusCode = [int]$_.Exception.Response.StatusCode } catch {}
+
+            # Honor Retry-After if the server told us how long to wait. Value
+            # may be either delta-seconds (RFC 9110 §10.2.3) or an HTTP-date.
+            $retryAfterSec = $null
+            try {
+                $ra = $null
+                try { $ra = $_.Exception.Response.Headers['Retry-After'] } catch {}
+                if (-not $ra) {
+                    try { $ra = ($_.Exception.Response.Headers.GetValues('Retry-After') | Select-Object -First 1) } catch {}
+                }
+                if ($ra) {
+                    $intVal = 0
+                    if ([int]::TryParse("$ra", [ref]$intVal) -and $intVal -gt 0) {
+                        $retryAfterSec = $intVal
+                    } else {
+                        try {
+                            $dt = [DateTime]::Parse("$ra")
+                            $retryAfterSec = [Math]::Max(1, [int]($dt.ToUniversalTime() - (Get-Date).ToUniversalTime()).TotalSeconds)
+                        } catch {}
+                    }
+                }
+            } catch {}
 
             $isRetryable = ($statusCode -in 429, 500, 502, 503, 504) -or
                            ($_.Exception.GetType().Name -match 'TimeoutException|HttpRequestException')
@@ -94,8 +214,13 @@ function Invoke-XcityRequest {
                 throw "[Xcity] request failed for [$Uri]: $($_.Exception.Message)"
             }
 
-            $sleep = $backoffSeconds[[Math]::Min($attempt, $backoffSeconds.Count - 1)]
-            Write-Verbose "[Xcity] HTTP $statusCode for [$Uri], backing off ${sleep}s (attempt $($attempt + 1)/$MaxRetries)"
+            # Use Retry-After when present (capped to 600s so we don't hang
+            # indefinitely on a misconfigured server); else fall back to the
+            # exponential schedule.
+            $sleep = if ($retryAfterSec -and $retryAfterSec -le 600) { $retryAfterSec }
+                     else { $backoffSeconds[[Math]::Min($attempt, $backoffSeconds.Count - 1)] }
+            $reason = if ($retryAfterSec) { "Retry-After=$retryAfterSec" } else { "schedule" }
+            Write-Verbose "[Xcity] HTTP $statusCode for [$Uri], backing off ${sleep}s ($reason, attempt $($attempt + 1)/$MaxRetries)"
             Start-Sleep -Seconds $sleep
         }
     }

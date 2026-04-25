@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.5.0] - 2026-04-25
+
+### Added
+
+- **Disk cache for xcity responses** at
+  `~/.javinizer/xcity-cache/<sha256(uri)>.json`. Default-on, opt-out via
+  the new `-NoCache` switch on `Invoke-XcityRequest`. TTL is URL-pattern
+  based: detail pages cache for 14 days, search results for 24 hours,
+  everything else for 1 hour. A re-run of an actress refresh now serves
+  unchanged URLs from disk in single-digit milliseconds instead of
+  hitting xcity, which both avoids 503 throttling and finishes much
+  faster on repeat work.
+- **Honor `Retry-After` header.** When xcity responds with 429 / 503
+  and a `Retry-After` value (delta-seconds or HTTP-date), the backoff
+  uses exactly that duration instead of the fixed 5/15/60/180s
+  schedule. Capped at 600s so a misconfigured server can't hang us
+  indefinitely; falls back to the schedule when no header is present.
+
+### Fixed
+
+- **`[DateTime]::Parse` locale bug in cache reader.** Under non-US
+  locales `ConvertFrom-Json`'s auto-DateTime-coercion produced strings
+  like `04/25/2026 10:16:00` that `Parse` couldn't reverse. Now reads
+  the `[DateTime]` value directly when present and falls back to
+  invariant-culture `RoundtripKind` parsing otherwise.
+
 ## [1.4.0] - 2026-04-25
 
 ### Added
