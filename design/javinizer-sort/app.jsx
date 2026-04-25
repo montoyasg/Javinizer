@@ -287,6 +287,7 @@ function ActressLibrary({ onJob, addToast }) {
   const [data, setData] = useState({ entries: [], total: 0 });
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [syncModal, setSyncModal] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -343,10 +344,15 @@ function ActressLibrary({ onJob, addToast }) {
         </select>
         <div style={{flex:1}} />
         <button onClick={refetchMissing} style={{...S.btn}}>↻ Refetch missing on page</button>
-        <button onClick={syncFromJellyfin} style={{background:'var(--accent)', border:'none', color:'#fff', padding:'5px 14px', borderRadius:5, fontSize:12, fontWeight:600}}>
+        <button onClick={syncFromJellyfin} style={{...S.btn}} title="Pull Jellyfin's actress list and enrich each from xcity">
           ⇩ Sync from Jellyfin
         </button>
+        <button onClick={()=>setSyncModal(true)} style={{background:'var(--accent)', border:'none', color:'#fff', padding:'5px 14px', borderRadius:5, fontSize:12, fontWeight:600}} title="Push the local dataset to your Jellyfin server">
+          ⇪ Sync to Jellyfin
+        </button>
       </div>
+
+      {syncModal && <JellyfinSyncModal onClose={()=>setSyncModal(false)} onJob={(id)=>{ onJob?.(id); setSyncModal(false); }} addToast={addToast} />}
 
       {loading ? (
         <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:10}}>
@@ -849,6 +855,7 @@ function JellyfinPanel({ addToast, onJob }) {
   const [fields, setFields] = useState({ Photo:true, Bio:true, Birthdate:true, Aliases:true });
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [mergeDuplicates, setMergeDuplicates] = useState(true);
+  const [parallelism, setParallelism] = useState(6);
   const [busy, setBusy] = useState(false);
 
   const loadAll = useCallback(async () => {
@@ -889,7 +896,7 @@ function JellyfinPanel({ addToast, onJob }) {
     try {
       const res = await api('/api/jellyfin/sync-actresses', {
         method:'POST',
-        body:{ fields: selected, replaceExisting, mergeDuplicates, dryRun },
+        body:{ fields: selected, replaceExisting, mergeDuplicates, dryRun, parallelism },
       });
       if (res.jobId) { onJob?.(res.jobId); addToast?.(dryRun ? 'Preview started' : 'Sync started', 'ok'); }
     } catch (e) { addToast?.(`Sync failed: ${e.message}`, 'error'); }
@@ -950,6 +957,10 @@ function JellyfinPanel({ addToast, onJob }) {
           <input type="checkbox" checked={mergeDuplicates} onChange={e=>setMergeDuplicates(e.target.checked)} style={{accentColor:'var(--accent)'}} />
           Merge duplicates
         </label>
+        <label style={{display:'flex', gap:6, alignItems:'center'}} title="Concurrent HTTP workers per sync">
+          <span>Parallel</span>
+          <input type="number" min={1} max={32} value={parallelism} onChange={e=>setParallelism(Math.max(1,Math.min(32,parseInt(e.target.value)||1)))} style={{...S.field, width:50, fontSize:11, padding:'2px 6px'}}/>
+        </label>
       </div>
 
       <div style={{display:'flex', gap:8, marginTop:2}}>
@@ -959,6 +970,97 @@ function JellyfinPanel({ addToast, onJob }) {
         <button onClick={()=>sync(false)} disabled={busy || !health?.ok} style={{background:'var(--accent)', border:'none', color:'#fff', padding:'5px 14px', borderRadius:5, fontSize:12, fontWeight:600, opacity: (busy || !health?.ok) ? 0.5 : 1, cursor: (busy || !health?.ok) ? 'default' : 'pointer'}}>
           ⇪ Sync to Jellyfin
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Jellyfin Sync Modal ──────────────────────────────────────────────────────
+// Standalone "Sync to Jellyfin" UI used from the Library view. Same controls
+// as JellyfinPanel but in a modal (the panel reads/writes URL+key while this
+// only triggers a sync; URL+key are still configured in Sort Settings).
+
+function JellyfinSyncModal({ onClose, onJob, addToast }) {
+  const [health, setHealth] = useState(null);
+  const [fields, setFields] = useState({ Photo:true, Bio:true, Birthdate:true, Aliases:true });
+  const [replaceExisting, setReplaceExisting] = useState(false);
+  const [mergeDuplicates, setMergeDuplicates] = useState(true);
+  const [parallelism, setParallelism] = useState(6);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try { setHealth(await api('/api/jellyfin/health')); }
+      catch (e) { setHealth({ ok:false, reason: e.message }); }
+    })();
+  }, []);
+
+  const sync = async (dryRun) => {
+    const selected = Object.keys(fields).filter(f => fields[f]);
+    if (selected.length === 0) { addToast?.('Pick at least one field', 'info'); return; }
+    setBusy(true);
+    try {
+      const res = await api('/api/jellyfin/sync-actresses', {
+        method:'POST',
+        body:{ fields: selected, replaceExisting, mergeDuplicates, dryRun, parallelism },
+      });
+      if (res.jobId) { onJob?.(res.jobId); addToast?.(dryRun ? 'Preview started' : 'Sync started', 'ok'); }
+    } catch (e) { addToast?.(`Sync failed: ${e.message}`, 'error'); }
+    finally { setBusy(false); }
+  };
+
+  const dot   = !health ? 'var(--text-muted)' : health.ok ? 'var(--green)' : 'var(--red)';
+  const stext =
+    !health             ? 'checking…' :
+    health.ok           ? `connected — ${health.serverName || '?'} v${health.version || '?'} (${health.latency_ms}ms)` :
+                          (health.reason === 'not configured' ? 'not configured (set URL + API key in Sort Settings)' : `unreachable: ${health.reason || 'unknown'}`);
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1500}} onClick={onClose}>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,width:560,maxWidth:'92vw',padding:18,display:'flex',flexDirection:'column',gap:12}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div style={{fontSize:16,fontWeight:600}}>Sync to Jellyfin</div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:20}}>×</button>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:6,fontSize:11,color:'var(--text-muted)'}}>
+          <span style={{width:8,height:8,borderRadius:'50%',background:dot,flexShrink:0}}/>
+          <span>{stext}</span>
+        </div>
+
+        <div>
+          <div style={{...S.label,marginBottom:6}}>Fields to sync</div>
+          <div style={{display:'flex',gap:14,flexWrap:'wrap',fontSize:12}}>
+            {JELLYFIN_FIELDS.map(f => (
+              <label key={f} style={{display:'flex',gap:4,alignItems:'center',cursor:'pointer',userSelect:'none',color:'var(--text)'}}>
+                <input type="checkbox" checked={!!fields[f]} onChange={e=>setFields(s=>({...s,[f]:e.target.checked}))} style={{accentColor:'var(--accent)'}}/>
+                {f}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div style={{display:'flex',gap:14,flexWrap:'wrap',fontSize:12,alignItems:'center'}}>
+          <label style={{display:'flex',gap:4,alignItems:'center',cursor:'pointer',userSelect:'none'}}>
+            <input type="checkbox" checked={replaceExisting} onChange={e=>setReplaceExisting(e.target.checked)} style={{accentColor:'var(--accent)'}}/>
+            Replace existing
+          </label>
+          <label style={{display:'flex',gap:4,alignItems:'center',cursor:'pointer',userSelect:'none'}} title="Detect 'Yuna Ogura' ↔ 'Ogura Yuna' on the server and merge them">
+            <input type="checkbox" checked={mergeDuplicates} onChange={e=>setMergeDuplicates(e.target.checked)} style={{accentColor:'var(--accent)'}}/>
+            Merge duplicates
+          </label>
+          <label style={{display:'flex',gap:6,alignItems:'center'}} title="Concurrent HTTP workers per sync">
+            <span style={{color:'var(--text-muted)'}}>Parallelism</span>
+            <input type="number" min={1} max={32} value={parallelism} onChange={e=>setParallelism(Math.max(1,Math.min(32,parseInt(e.target.value)||1)))} style={{...S.field, width:60, fontSize:11, padding:'2px 6px'}}/>
+          </label>
+        </div>
+
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid var(--border)',paddingTop:10}}>
+          <button onClick={onClose} style={{...S.btn}}>Cancel</button>
+          <button onClick={()=>sync(true)} disabled={busy || !health?.ok} style={{...S.btn}}>👁 Preview (dry-run)</button>
+          <button onClick={()=>sync(false)} disabled={busy || !health?.ok} style={{background:'var(--accent)',border:'none',color:'#fff',padding:'6px 16px',borderRadius:5,fontSize:12,fontWeight:600,opacity:(busy||!health?.ok)?0.5:1,cursor:(busy||!health?.ok)?'default':'pointer'}}>
+            ⇪ Sync now
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1968,7 +2070,34 @@ function App() {
   const [serverSettings, setServerSettings] = useState(null);
   const [showManualScrape, setShowManualScrape] = useState(false);
   const [view, setView] = useState('sort'); // 'sort' | 'library'
-  const [activeJobId, setActiveJobId] = useState(null);
+  const [activeJobId, _setActiveJobId] = useState(() => {
+    try { return localStorage.getItem('jv-activeJobId') || null; } catch { return null; }
+  });
+  const setActiveJobId = useCallback((id) => {
+    _setActiveJobId(id);
+    try {
+      if (id) localStorage.setItem('jv-activeJobId', id);
+      else localStorage.removeItem('jv-activeJobId');
+    } catch {}
+  }, []);
+
+  // On mount: if we hydrated a job id from localStorage, verify it's still
+  // running on the server. If it's done/error/cancelled/missing, clear.
+  useEffect(() => {
+    if (!activeJobId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await api(`/api/jobs/${activeJobId}`);
+        if (cancelled) return;
+        if (s.status !== 'running') setActiveJobId(null);
+      } catch {
+        if (!cancelled) setActiveJobId(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
 
   // Persist settings
   useEffect(() => { localStorage.setItem('jv-settings', JSON.stringify(settings)); }, [settings]);

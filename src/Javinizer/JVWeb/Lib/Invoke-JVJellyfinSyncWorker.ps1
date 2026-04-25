@@ -18,6 +18,7 @@ function Invoke-JVJellyfinSyncWorker {
     if ($ctx.replaceExisting) { $params['ReplaceExisting'] = $true }
     if ($ctx.mergeDuplicates) { $params['MergeDuplicates'] = $true }
     if ($ctx.dryRun)          { $params['DryRun']          = $true }
+    if ($ctx.parallelism)     { $params['Parallelism']     = [int]$ctx.parallelism }
 
     return (Set-JVJellyfinActresses @params)
 }

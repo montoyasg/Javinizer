@@ -18,8 +18,35 @@ function Invoke-JVActressRefreshWorker {
         Update-JVJobProgress -Message 'fetching Jellyfin person list...'
         $url = "$($ctx.embyUrl.TrimEnd('/'))/emby/Persons/?api_key=$($ctx.embyApiKey)"
         $resp = Invoke-RestMethod -Method Get -Uri $url -TimeoutSec 30
-        $names = @($resp.Items | ForEach-Object { @{ name = $_.Name } })
-        Add-JVJobLog "Jellyfin returned $($names.Count) persons"
+        $rawNames = @($resp.Items | ForEach-Object { @{ name = $_.Name } })
+        Add-JVJobLog "Jellyfin returned $($rawNames.Count) persons"
+
+        # Deduplicate name-swap pairs ("Yuna Ogura" + "Ogura Yuna" → one entry).
+        # Group by sorted-tokens; the first member of each group is the canonical
+        # search query, the rest become aliases that get persisted alongside it.
+        $groups = @{}
+        foreach ($r in $rawNames) {
+            $tokens = ($r.name -split '\s+' | Where-Object { $_ })
+            if ($tokens.Count -eq 2) {
+                $key = ($tokens | Sort-Object) -join ' '
+            } else {
+                $key = $r.name.ToLowerInvariant()
+            }
+            if (-not $groups.ContainsKey($key)) { $groups[$key] = @() }
+            $groups[$key] += $r.name
+        }
+        $deduped = New-Object System.Collections.Generic.List[Object]
+        $dupePairs = 0
+        foreach ($kv in $groups.GetEnumerator()) {
+            if ($kv.Value.Count -gt 1) { $dupePairs++ }
+            $first = $kv.Value[0]
+            $aliases = if ($kv.Value.Count -gt 1) { @($kv.Value[1..($kv.Value.Count - 1)]) } else { @() }
+            $deduped.Add(@{ name = $first; aliases = $aliases }) | Out-Null
+        }
+        $names = $deduped.ToArray()
+        if ($dupePairs -gt 0) {
+            Add-JVJobLog "deduped $dupePairs name-swap pair(s); processing $($names.Count) canonical names"
+        }
     }
 
     $total = $names.Count
@@ -60,8 +87,34 @@ function Invoke-JVActressRefreshWorker {
         try {
             $hits = Find-XcityActressByName -Name $romaji -Session $session -MaxResults 3
             if (-not $hits -or $hits.Count -eq 0) {
+                # Save a stub so the actress still appears in the Library and
+                # can be synced to Jellyfin (without enrichment). Skip if a
+                # real entry already exists for the same name.
+                $stub = Find-JVActress -Name $romaji -JapaneseName $n.japaneseName -Aliases @($n.aliases) -Dataset $dataset
+                if (-not $stub) {
+                    $stubEntry = [ordered]@{
+                        name         = $romaji
+                        japaneseName = $n.japaneseName
+                        aliases      = @($n.aliases)
+                        birthdate    = $null
+                        bloodType    = $null
+                        birthCity    = $null
+                        height       = $null
+                        measurements = $null
+                        hobby        = $null
+                        specialSkill = $null
+                        bio          = $null
+                        primaryUrl   = $null
+                        xcityId      = $null
+                        xcityUrl     = $null
+                        lastFetched  = (Get-Date).ToString('o')
+                    }
+                    Set-JVActressEntry -Dataset $dataset -Entry $stubEntry
+                    $sinceLastSave++
+                    $stats.added++
+                }
                 $stats.notFound++
-                Add-JVJobLog "no xcity match: $romaji"
+                Add-JVJobLog "no xcity match (stub saved): $romaji"
                 continue
             }
             $top = $hits[0]

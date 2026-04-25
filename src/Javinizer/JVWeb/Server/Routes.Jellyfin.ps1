@@ -42,19 +42,24 @@ Add-PodeRoute -Method Post -Path '/api/jellyfin/sync-actresses' -ScriptBlock {
 
         $body = $WebEvent.Data
         $fields = if ($body.fields) { @($body.fields) } else { @('Photo','Bio','Birthdate','Aliases') }
-        $args = @{
+        $parallelism = if ($body.parallelism) { [int]$body.parallelism } else { 6 }
+        if ($parallelism -lt 1) { $parallelism = 1 }
+        if ($parallelism -gt 32) { $parallelism = 32 }
+
+        $jobArgs = @{
             embyUrl          = $url
             embyApiKey       = $key
             fields           = $fields
             replaceExisting  = [bool]$body.replaceExisting
             mergeDuplicates  = [bool]$body.mergeDuplicates
             dryRun           = [bool]$body.dryRun
+            parallelism      = $parallelism
         }
 
         $libDir = $env:JVWEB_LIB
         $manifestPath = $env:JVWEB_MANIFEST
         $job = Start-JVJob -Kind 'jellyfin-sync' -ModulePath $manifestPath -LibDir $libDir `
-            -Arguments $args -WorkerFunction 'Invoke-JVJellyfinSyncWorker'
+            -Arguments $jobArgs -WorkerFunction 'Invoke-JVJellyfinSyncWorker'
 
         Write-PodeJsonResponse -Value @{ jobId = $job.jobId }
     } catch {

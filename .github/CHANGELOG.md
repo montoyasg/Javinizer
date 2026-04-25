@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.2.0] - 2026-04-25
+
+### Added
+
+- **Parallel Jellyfin sync.** `Set-JVJellyfinActresses` now uses
+  `ForEach-Object -Parallel` for the per-person update loop with a
+  default `Parallelism` of 6 (configurable 1–32 via the
+  JellyfinPanel / JellyfinSyncModal "Parallel" input or the route
+  body's `parallelism` field). Pre-matching against `jvActresses.json`
+  stays sequential; HTTP work runs concurrently.
+- **"Sync to Jellyfin" in the Library view.** The Actress Library top
+  bar now has a `⇪ Sync to Jellyfin` button that opens a modal with
+  the same controls as the Sort-Settings JellyfinPanel — fields,
+  Replace existing, Merge duplicates, Parallelism, Preview (dry-run),
+  Sync now.
+- **Stub entries for unmatched actresses.** When `Sync from Jellyfin`
+  hits an actress xcity has no record of, a placeholder entry (name +
+  JapaneseName + null fields) is now saved to `jvActresses.json` so
+  the actress still appears in the Library and can be triaged
+  manually.
+- **Name-swap deduplication during Sync-from-Jellyfin.** Before hitting
+  xcity, the worker groups Jellyfin's person list by sorted-tokens
+  (so "Yuna Ogura" + "Ogura Yuna" collapse into one entry). Only one
+  xcity search runs per canonical name; the other spelling is
+  persisted as an alias. Halves redundant xcity calls for split
+  identities and prevents the dataset from carrying two entries for
+  the same person.
+
+### Changed
+
+- **Background-job UI survives browser close.** `activeJobId` is now
+  persisted to `localStorage` on set; on App mount the UI re-attaches
+  to a still-running job (verifying via `GET /api/jobs/:id` first
+  and clearing if the job has since finished).
+
 ## [1.1.0] - 2026-04-25
 
 ### Added
