@@ -21,6 +21,8 @@ Add-PodeRoute -Method Get -Path '/api/settings' -ScriptBlock {
             'javdb.cookie.user_agent'
             'emby.url'
             'emby.apikey'
+            'actresses.refresh.parallelism'
+            'actresses.sync.parallelism'
         )
 
         $settings = Get-PodeState -Name 'settings'
@@ -62,6 +64,8 @@ Add-PodeRoute -Method Post -Path '/api/settings' -ScriptBlock {
             'javdb.cookie.user_agent'
             'emby.url'
             'emby.apikey'
+            'actresses.refresh.parallelism'
+            'actresses.sync.parallelism'
         )
 
         $body = $WebEvent.Data

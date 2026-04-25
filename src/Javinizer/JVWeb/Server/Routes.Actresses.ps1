@@ -68,14 +68,21 @@ Add-PodeRoute -Method Post -Path '/api/actresses/refresh' -ScriptBlock {
 
         $libDir = $env:JVWEB_LIB
         $manifestPath = $env:JVWEB_MANIFEST
+        $settings = Get-PodeState -Name 'settings'
+
+        $parallelism = if ($body.parallelism) { [int]$body.parallelism }
+                       elseif ($settings.'actresses.refresh.parallelism') { [int]$settings.'actresses.refresh.parallelism' }
+                       else { 3 }
+        if ($parallelism -lt 1)  { $parallelism = 1 }
+        if ($parallelism -gt 16) { $parallelism = 16 }
 
         $arguments = @{
             source          = $source
             names           = @($body.names)
             replaceExisting = [bool]$body.replaceExisting
+            parallelism     = $parallelism
         }
         if ($source -eq 'jellyfin') {
-            $settings = Get-PodeState -Name 'settings'
             $arguments['embyUrl']    = $settings.'emby.url'
             $arguments['embyApiKey'] = $settings.'emby.apikey'
             if (-not $arguments.embyUrl -or -not $arguments.embyApiKey) {

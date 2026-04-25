@@ -42,7 +42,9 @@ Add-PodeRoute -Method Post -Path '/api/jellyfin/sync-actresses' -ScriptBlock {
 
         $body = $WebEvent.Data
         $fields = if ($body.fields) { @($body.fields) } else { @('Photo','Bio','Birthdate','Aliases') }
-        $parallelism = if ($body.parallelism) { [int]$body.parallelism } else { 6 }
+        $parallelism = if ($body.parallelism) { [int]$body.parallelism }
+                       elseif ($settings.'actresses.sync.parallelism') { [int]$settings.'actresses.sync.parallelism' }
+                       else { 6 }
         if ($parallelism -lt 1) { $parallelism = 1 }
         if ($parallelism -gt 32) { $parallelism = 32 }
 

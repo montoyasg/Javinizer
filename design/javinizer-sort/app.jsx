@@ -237,10 +237,12 @@ function JobProgressBar({ jobId, onDone }) {
         setState(s);
         if (s.status === 'running') {
           timer = setTimeout(tick, 750);
-        } else if (onDone) {
-          onDone(s);
         }
+        // For done/error/cancelled: stop polling but keep the final state
+        // visible so the user can read it. The × button calls onDone(null)
+        // when they're ready to dismiss.
       } catch (e) {
+        // Job state file missing (server reaped or restarted) — clear.
         if (!cancelled && onDone) onDone(null);
       }
     };
@@ -288,6 +290,19 @@ function ActressLibrary({ onJob, addToast }) {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
   const [syncModal, setSyncModal] = useState(false);
+  const [refreshParallel, setRefreshParallel] = useState(3);
+
+  // Hydrate refresh parallelism from settings on mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await api('/api/settings');
+        if (s.settings?.['actresses.refresh.parallelism']) {
+          setRefreshParallel(parseInt(s.settings['actresses.refresh.parallelism']) || 3);
+        }
+      } catch {}
+    })();
+  }, []);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -306,7 +321,7 @@ function ActressLibrary({ onJob, addToast }) {
 
   const syncFromJellyfin = async () => {
     try {
-      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'jellyfin', replaceExisting:false } });
+      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'jellyfin', replaceExisting:false, parallelism: refreshParallel } });
       if (res.jobId) { onJob?.(res.jobId); addToast?.('Sync from Jellyfin started', 'ok'); }
     } catch (e) { addToast?.('Sync failed: ' + e.message, 'error'); }
   };
@@ -315,14 +330,14 @@ function ActressLibrary({ onJob, addToast }) {
     const targets = data.entries.filter(e => !e.bio || !e.primaryUrl).map(e => ({ name: e.name, japaneseName: e.japaneseName, aliases: e.aliases }));
     if (targets.length === 0) { addToast?.('Nothing to refetch on this page', 'info'); return; }
     try {
-      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'names', names: targets, replaceExisting:true } });
+      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'names', names: targets, replaceExisting:true, parallelism: refreshParallel } });
       if (res.jobId) { onJob?.(res.jobId); addToast?.(`Refetching ${targets.length} actresses`, 'ok'); }
     } catch (e) { addToast?.('Refetch failed: ' + e.message, 'error'); }
   };
 
   const refetchOne = async (entry) => {
     try {
-      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'names', names:[{ name: entry.name, japaneseName: entry.japaneseName, aliases: entry.aliases }], replaceExisting:true } });
+      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'names', names:[{ name: entry.name, japaneseName: entry.japaneseName, aliases: entry.aliases }], replaceExisting:true, parallelism: refreshParallel } });
       if (res.jobId) { onJob?.(res.jobId); addToast?.(`Refetching ${entry.name}`, 'ok'); }
     } catch (e) { addToast?.('Refetch failed: ' + e.message, 'error'); }
   };
@@ -343,6 +358,18 @@ function ActressLibrary({ onJob, addToast }) {
           <option value="missing-bio">Missing bio</option>
         </select>
         <div style={{flex:1}} />
+        <label style={{display:'flex', gap:5, alignItems:'center', fontSize:11, color:'var(--text-muted)'}} title="xcity-fetch parallelism (saved on blur). Lower = politer to xcity.">
+          <span>Parallel</span>
+          <input
+            type="number" min={1} max={16} value={refreshParallel}
+            onChange={e=>setRefreshParallel(Math.max(1,Math.min(16,parseInt(e.target.value)||1)))}
+            onBlur={async e => {
+              const v = Math.max(1, Math.min(16, parseInt(e.target.value) || 3));
+              try { await api('/api/settings', { method:'POST', body:{ settings:{ 'actresses.refresh.parallelism': v }}}); addToast?.('Saved', 'ok'); }
+              catch (err) { addToast?.(`Save failed: ${err.message}`, 'error'); }
+            }}
+            style={{...S.field, width:50, fontSize:11, padding:'2px 6px'}}/>
+        </label>
         <button onClick={refetchMissing} style={{...S.btn}}>↻ Refetch missing on page</button>
         <button onClick={syncFromJellyfin} style={{...S.btn}} title="Pull Jellyfin's actress list and enrich each from xcity">
           ⇩ Sync from Jellyfin
@@ -866,6 +893,7 @@ function JellyfinPanel({ addToast, onJob }) {
       const k = srv['emby.apikey'] || '';
       setUrl(u); setServerUrl(u);
       setApikey(k); setServerKey(k);
+      if (srv['actresses.sync.parallelism']) setParallelism(parseInt(srv['actresses.sync.parallelism']) || 6);
       if (u && k) {
         const h = await api('/api/jellyfin/health');
         setHealth(h);
@@ -957,9 +985,17 @@ function JellyfinPanel({ addToast, onJob }) {
           <input type="checkbox" checked={mergeDuplicates} onChange={e=>setMergeDuplicates(e.target.checked)} style={{accentColor:'var(--accent)'}} />
           Merge duplicates
         </label>
-        <label style={{display:'flex', gap:6, alignItems:'center'}} title="Concurrent HTTP workers per sync">
+        <label style={{display:'flex', gap:6, alignItems:'center'}} title="Concurrent HTTP workers per sync. Saved on blur.">
           <span>Parallel</span>
-          <input type="number" min={1} max={32} value={parallelism} onChange={e=>setParallelism(Math.max(1,Math.min(32,parseInt(e.target.value)||1)))} style={{...S.field, width:50, fontSize:11, padding:'2px 6px'}}/>
+          <input
+            type="number" min={1} max={32} value={parallelism}
+            onChange={e=>setParallelism(Math.max(1,Math.min(32,parseInt(e.target.value)||1)))}
+            onBlur={async e => {
+              const v = Math.max(1, Math.min(32, parseInt(e.target.value) || 6));
+              try { await api('/api/settings', { method:'POST', body:{ settings:{ 'actresses.sync.parallelism': v }}}); addToast?.('Saved', 'ok'); }
+              catch (err) { addToast?.(`Save failed: ${err.message}`, 'error'); }
+            }}
+            style={{...S.field, width:50, fontSize:11, padding:'2px 6px'}}/>
         </label>
       </div>
 
@@ -990,6 +1026,12 @@ function JellyfinSyncModal({ onClose, onJob, addToast }) {
 
   useEffect(() => {
     (async () => {
+      try {
+        const s = await api('/api/settings');
+        if (s.settings?.['actresses.sync.parallelism']) {
+          setParallelism(parseInt(s.settings['actresses.sync.parallelism']) || 6);
+        }
+      } catch {}
       try { setHealth(await api('/api/jellyfin/health')); }
       catch (e) { setHealth({ ok:false, reason: e.message }); }
     })();
@@ -1048,9 +1090,17 @@ function JellyfinSyncModal({ onClose, onJob, addToast }) {
             <input type="checkbox" checked={mergeDuplicates} onChange={e=>setMergeDuplicates(e.target.checked)} style={{accentColor:'var(--accent)'}}/>
             Merge duplicates
           </label>
-          <label style={{display:'flex',gap:6,alignItems:'center'}} title="Concurrent HTTP workers per sync">
+          <label style={{display:'flex',gap:6,alignItems:'center'}} title="Concurrent HTTP workers per sync. Saved on blur.">
             <span style={{color:'var(--text-muted)'}}>Parallelism</span>
-            <input type="number" min={1} max={32} value={parallelism} onChange={e=>setParallelism(Math.max(1,Math.min(32,parseInt(e.target.value)||1)))} style={{...S.field, width:60, fontSize:11, padding:'2px 6px'}}/>
+            <input
+              type="number" min={1} max={32} value={parallelism}
+              onChange={e=>setParallelism(Math.max(1,Math.min(32,parseInt(e.target.value)||1)))}
+              onBlur={async e => {
+                const v = Math.max(1, Math.min(32, parseInt(e.target.value) || 6));
+                try { await api('/api/settings', { method:'POST', body:{ settings:{ 'actresses.sync.parallelism': v }}}); addToast?.('Saved', 'ok'); }
+                catch (err) { addToast?.(`Save failed: ${err.message}`, 'error'); }
+              }}
+              style={{...S.field, width:60, fontSize:11, padding:'2px 6px'}}/>
           </label>
         </div>
 
@@ -2081,16 +2131,16 @@ function App() {
     } catch {}
   }, []);
 
-  // On mount: if we hydrated a job id from localStorage, verify it's still
-  // running on the server. If it's done/error/cancelled/missing, clear.
+  // On mount: if we hydrated a job id from localStorage, verify the state
+  // file still exists. If the server has reaped it (404), clear. Otherwise
+  // keep — the JobProgressBar will fetch + render whatever state is there
+  // (running OR done/error), and the user dismisses with × when ready.
   useEffect(() => {
     if (!activeJobId) return;
     let cancelled = false;
     (async () => {
       try {
-        const s = await api(`/api/jobs/${activeJobId}`);
-        if (cancelled) return;
-        if (s.status !== 'running') setActiveJobId(null);
+        await api(`/api/jobs/${activeJobId}`);
       } catch {
         if (!cancelled) setActiveJobId(null);
       }

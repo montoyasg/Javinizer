@@ -54,6 +54,7 @@ function Set-JVJellyfinActresses {
     $stats = @{
         attempted     = 0
         updated       = 0
+        skipped       = 0
         notMatched    = @()
         fieldsUpdated = @{ photo=0; bio=0; birthdate=0; aliases=0 }
         merged        = @()
@@ -188,6 +189,7 @@ function Set-JVJellyfinActresses {
     $shared = [hashtable]::Synchronized(@{
         counter   = 0
         updated   = 0
+        skipped   = 0
         photo     = 0
         bio       = 0
         birthdate = 0
@@ -229,6 +231,38 @@ function Set-JVJellyfinActresses {
         }
 
         $touched = $false
+
+        # Early skip: when not replacing and Jellyfin already has Primary +
+        # Thumb images, AND no metadata fields are requested, there's nothing
+        # to do. Avoids the full-item GET round-trip entirely.
+        if (-not $replace) {
+            $hasImages = ([bool]$p.ImageTags.Primary -and [bool]$p.ImageTags.Thumb)
+            $needsMetaCheck = (('Bio' -in $fields -and $entry.bio) -or
+                               ('Birthdate' -in $fields -and $entry.birthdate) -or
+                               ('Aliases' -in $fields -and $entry.aliases -and $entry.aliases.Count -gt 0))
+            $needsPhotoUpload = ('Photo' -in $fields -and $entry.primaryUrl -and -not $hasImages)
+            if (-not $needsPhotoUpload -and -not $needsMetaCheck) {
+                _bumpField $sh 'skipped'
+                # Still bump counter + write progress so the bar advances.
+                [System.Threading.Monitor]::Enter($sh)
+                try { $sh.counter = $sh.counter + 1; $cur = $sh.counter } finally { [System.Threading.Monitor]::Exit($sh) }
+                if ($statePath -and (Test-Path -LiteralPath $statePath)) {
+                    try {
+                        $s = Get-Content -LiteralPath $statePath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+                        if ($s) {
+                            $s.progress.current = $cur
+                            $s.progress.total   = $totalCount
+                            $s.progress.message = "skip $($p.Name) (already populated)"
+                            $tmp = "$statePath.tmp"
+                            [System.IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
+                            Move-Item -LiteralPath $tmp -Destination $statePath -Force
+                        }
+                    } catch {}
+                }
+                return
+            }
+        }
+
         try {
             # Photos
             if ('Photo' -in $fields -and $entry.primaryUrl) {
@@ -316,6 +350,7 @@ function Set-JVJellyfinActresses {
         }
 
         if ($touched) { _bumpField $sh 'updated' }
+        else          { _bumpField $sh 'skipped' }
 
         # Bump counter + write progress to state file. Concurrent writes are
         # tolerated — atomic Move-Item ensures the file isn't corrupted; the
@@ -339,6 +374,7 @@ function Set-JVJellyfinActresses {
 
     # Sync stats back from shared counters.
     $stats.updated = $shared.updated
+    $stats.skipped = $shared.skipped
     $stats.fieldsUpdated.photo     = $shared.photo
     $stats.fieldsUpdated.bio       = $shared.bio
     $stats.fieldsUpdated.birthdate = $shared.birthdate

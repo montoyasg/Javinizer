@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.3.0] - 2026-04-25
+
+### Added
+
+- **Parallel Sync-from-Jellyfin.** `Invoke-JVActressRefreshWorker` now
+  uses `ForEach-Object -Parallel` for the xcity fetch loop. Default
+  parallelism is 3 (lower than the Jellyfin sync's 6 — xcity is a
+  third-party site we should be polite to). Each parallel runspace
+  dot-sources `Scraper.Xcity.ps1` once on entry, uses its own
+  `WebRequestSession`, and emits a result tuple that the parent merges
+  into the dataset under a single Monitor lock at the end. Pre-skip
+  phase still runs sequentially in-memory.
+- **Persisted parallelism settings.** Two new whitelisted setting keys:
+  `actresses.refresh.parallelism` (xcity-side, range 1–16, default 3)
+  and `actresses.sync.parallelism` (Jellyfin-side, range 1–32,
+  default 6). UI inputs in JellyfinPanel, JellyfinSyncModal, and the
+  ActressLibrary top bar save on blur and hydrate on mount.
+- **Skip counter on Jellyfin sync.** `Set-JVJellyfinActresses` now
+  reports `skipped` in its summary (in addition to `attempted`,
+  `updated`, `notMatched`). Actresses where nothing changed (because
+  Jellyfin already had everything and `-ReplaceExisting` was off) are
+  counted as skipped, not updated.
+- **Early-skip optimization.** When `-ReplaceExisting` is off and
+  Jellyfin's `/Persons/` payload already shows Primary + Thumb image
+  tags AND no metadata fields are requested for that actress, the
+  full-item GET round-trip is now bypassed entirely.
+
+### Changed
+
+- **Progress bar persists after job completion.** The `JobProgressBar`
+  no longer auto-dismisses when a job flips to done/error/cancelled —
+  it stops polling and keeps the final state visible until the user
+  clicks the × button. Page-refresh during a sync now correctly
+  re-attaches to the running job AND to a recently-completed job (so
+  the user can read the final stats), only clearing when the server
+  has reaped the state file (1h TTL).
+
 ## [1.2.0] - 2026-04-25
 
 ### Added
