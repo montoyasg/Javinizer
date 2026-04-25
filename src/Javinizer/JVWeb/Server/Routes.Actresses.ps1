@@ -70,17 +70,39 @@ Add-PodeRoute -Method Post -Path '/api/actresses/refresh' -ScriptBlock {
         $manifestPath = $env:JVWEB_MANIFEST
         $settings = Get-PodeState -Name 'settings'
 
-        $parallelism = if ($body.parallelism) { [int]$body.parallelism }
-                       elseif ($settings.'actresses.refresh.parallelism') { [int]$settings.'actresses.refresh.parallelism' }
-                       else { 3 }
-        if ($parallelism -lt 1)  { $parallelism = 1 }
-        if ($parallelism -gt 16) { $parallelism = 16 }
+        # xcity-side parallelism (Phase C). New key wins; falls back to legacy.
+        $xcityParallelism = if ($body.xcityParallelism) { [int]$body.xcityParallelism }
+                            elseif ($body.parallelism)  { [int]$body.parallelism }
+                            elseif ($settings.'actresses.refresh.xcity.parallelism') { [int]$settings.'actresses.refresh.xcity.parallelism' }
+                            elseif ($settings.'actresses.refresh.parallelism')       { [int]$settings.'actresses.refresh.parallelism' }
+                            else { 3 }
+        if ($xcityParallelism -lt 1)  { $xcityParallelism = 1 }
+        if ($xcityParallelism -gt 16) { $xcityParallelism = 16 }
+
+        # Jellyfin-side parallelism (Phase B).
+        $jellyfinParallelism = if ($body.jellyfinParallelism) { [int]$body.jellyfinParallelism }
+                               elseif ($settings.'actresses.refresh.jellyfin.parallelism') { [int]$settings.'actresses.refresh.jellyfin.parallelism' }
+                               else { 8 }
+        if ($jellyfinParallelism -lt 1)  { $jellyfinParallelism = 1 }
+        if ($jellyfinParallelism -gt 32) { $jellyfinParallelism = 32 }
+
+        # Phase B opt-in. Default ON. Body wins; else read setting; else true.
+        $useJellyfin = $true
+        if ($body.PSObject.Properties.Name -contains 'useJellyfin' -or
+            ($body -is [System.Collections.IDictionary] -and $body.Contains('useJellyfin'))) {
+            $useJellyfin = [bool]$body.useJellyfin
+        } elseif ($settings.PSObject.Properties.Name -contains 'actresses.refresh.usejellyfin') {
+            $useJellyfin = [bool]$settings.'actresses.refresh.usejellyfin'
+        }
 
         $arguments = @{
-            source          = $source
-            names           = @($body.names)
-            replaceExisting = [bool]$body.replaceExisting
-            parallelism     = $parallelism
+            source              = $source
+            names               = @($body.names)
+            replaceExisting     = [bool]$body.replaceExisting
+            xcityParallelism    = $xcityParallelism
+            jellyfinParallelism = $jellyfinParallelism
+            useJellyfin         = $useJellyfin
+            parallelism         = $xcityParallelism  # legacy alias for worker
         }
         if ($source -eq 'jellyfin') {
             $arguments['embyUrl']    = $settings.'emby.url'

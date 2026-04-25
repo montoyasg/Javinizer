@@ -18,9 +18,30 @@ function Invoke-JVActressRefreshWorker {
     $source          = "$($ctx.source)"
     $replaceExisting = [bool]$ctx.replaceExisting
     $names           = @($ctx.names)
-    $parallelism     = if ($ctx.parallelism) { [int]$ctx.parallelism } else { 3 }
-    if ($parallelism -lt 1)  { $parallelism = 1 }
-    if ($parallelism -gt 16) { $parallelism = 16 }
+
+    # xcity-side parallelism (Phase C). Aliases: new key, falls back to legacy.
+    $xcityParallelism = if ($ctx.xcityParallelism) { [int]$ctx.xcityParallelism }
+                        elseif ($ctx.parallelism)  { [int]$ctx.parallelism }
+                        else { 3 }
+    if ($xcityParallelism -lt 1)  { $xcityParallelism = 1 }
+    if ($xcityParallelism -gt 16) { $xcityParallelism = 16 }
+    $parallelism = $xcityParallelism  # legacy alias used in log lines below
+
+    # Jellyfin-side parallelism (Phase B). Higher because it's local network.
+    $jellyfinParallelism = if ($ctx.jellyfinParallelism) { [int]$ctx.jellyfinParallelism } else { 8 }
+    if ($jellyfinParallelism -lt 1)  { $jellyfinParallelism = 1 }
+    if ($jellyfinParallelism -gt 32) { $jellyfinParallelism = 32 }
+
+    # Promote-from-Jellyfin toggle. Default ON when source='jellyfin' and the
+    # caller didn't say otherwise. The route's $arguments hashtable always
+    # includes the key, so falsy = explicitly disabled.
+    $useJellyfin = if ($ctx.PSObject.Properties.Name -contains 'useJellyfin') {
+        [bool]$ctx.useJellyfin
+    } elseif ($ctx -is [System.Collections.IDictionary] -and $ctx.Contains('useJellyfin')) {
+        [bool]$ctx.useJellyfin
+    } else {
+        $true
+    }
 
     if ($source -eq 'jellyfin') {
         Update-JVJobProgress -Message 'fetching Jellyfin person list...'
@@ -60,13 +81,139 @@ function Invoke-JVActressRefreshWorker {
     Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
     $dataset = Get-JVActressDataset -Force
 
-    # Pre-skip phase (sequential, in-memory). Filters out empty names and
-    # already-populated entries before we hit the network in parallel.
-    $stats = @{ added = 0; updated = 0; skipped = 0; notFound = 0; errors = @() }
+    $stats = @{ added = 0; updated = 0; skipped = 0; promoted = 0; notFound = 0; errors = @() }
+
+    # ── Phase B: promote whatever Jellyfin already has ────────────────────────
+    # Per-actress GET to /Users/{userId}/Items/{personId}, project to a local
+    # entry, save when bio + birthdate are both present. Captured names skip
+    # Phase C's xcity round-trip entirely. Off = today's pure-xcity behavior.
+    $preCaptured = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+
+    if ($source -eq 'jellyfin' -and $useJellyfin) {
+        Update-JVJobProgress -Message "phase B: fetching Jellyfin metadata (parallelism=$jellyfinParallelism)..."
+        Add-JVJobLog "phase B start: useJellyfin=true jellyfinParallelism=$jellyfinParallelism"
+
+        $userId = Resolve-JVJellyfinUserId -Url $ctx.embyUrl -ApiKey $ctx.embyApiKey
+        if (-not $userId) {
+            Add-JVJobLog "WARN: couldn't resolve Jellyfin userId; skipping Phase B"
+        } else {
+            # Bulk fetch of /Persons/ (basic fields), then per-person GETs for
+            # the rich payload (Overview, PremiereDate, AlternateNames). Bulk
+            # gives us the Jellyfin person IDs to drive the per-person calls.
+            $personsBasic = Get-JVJellyfinPersons -Url $ctx.embyUrl -ApiKey $ctx.embyApiKey
+            $byName = @{}
+            foreach ($p in $personsBasic) { if ($p.Name) { $byName[$p.Name] = $p } }
+
+            # Match canonical names from the dedup phase to Jellyfin person IDs.
+            # When name-swap dedup picked "Yuna Ogura" as canonical but the
+            # Jellyfin person is recorded as "Ogura Yuna", look up by alias too.
+            $tasks = New-Object System.Collections.Generic.List[Object]
+            foreach ($n in $names) {
+                $jp = $byName[$n.name]
+                if (-not $jp) {
+                    foreach ($a in @($n.aliases)) {
+                        if ($byName.ContainsKey($a)) { $jp = $byName[$a]; break }
+                    }
+                }
+                if ($jp) {
+                    $tasks.Add(@{ Canonical = $n; PersonId = $jp.Id; ImageTags = $jp.ImageTags }) | Out-Null
+                }
+            }
+
+            $jobStatePath = $global:JVActiveJobStatePath
+            $promotedBag  = [System.Collections.Concurrent.ConcurrentBag[Object]]::new()
+            $shared       = [hashtable]::Synchronized(@{ counter = 0 })
+            $ttl          = $tasks.Count
+
+            $libDir = $env:JVWEB_LIB
+            if (-not $libDir -and $PSScriptRoot) { $libDir = $PSScriptRoot }
+
+            Update-JVJobProgress -Current 0 -Total $ttl -Message "phase B: fetching $ttl person items"
+
+            $tasks | ForEach-Object -ThrottleLimit $jellyfinParallelism -Parallel {
+                $task   = $_
+                $sh     = $using:shared
+                $bag    = $using:promotedBag
+                $sp     = $using:jobStatePath
+                $totC   = $using:ttl
+                $libD   = $using:libDir
+                $url    = $using:ctx.embyUrl
+                $key    = $using:ctx.embyApiKey
+                $uid    = $using:userId
+
+                # Dot-source helpers needed in this fresh runspace.
+                if ($libD) {
+                    foreach ($f in @('Get-JVJellyfinClient.ps1')) {
+                        $p = Join-Path $libD $f
+                        if (Test-Path -LiteralPath $p) { . $p }
+                    }
+                }
+
+                $full = Get-JVJellyfinPersonFull -Url $url -ApiKey $key -UserId $uid -PersonId $task.PersonId
+                if ($full) {
+                    $aliasesAll = @($task.Canonical.aliases) | Where-Object { $_ }
+                    $entry = ConvertFrom-JVJellyfinPersonItem -Person $full -AdditionalAliases $aliasesAll
+                    # Inline a Jellyfin image URL when the server has one. URL
+                    # carries the API key — usable from the same network only;
+                    # acceptable since the dataset file is private to the user.
+                    $hasImg = $false
+                    try { $hasImg = ([bool]$task.ImageTags.Primary -or [bool]$task.ImageTags.Thumb) } catch {}
+                    if ($hasImg) {
+                        $entry.primaryUrl = "$($url.TrimEnd('/'))/emby/Items/$($task.PersonId)/Images/Primary?api_key=$key"
+                    }
+                    # JapaneseName isn't a Jellyfin concept; carry the caller's
+                    # value forward if they passed one.
+                    if ($task.Canonical.japaneseName -and -not $entry.japaneseName) {
+                        $entry.japaneseName = $task.Canonical.japaneseName
+                    }
+                    $bag.Add(@{ Name = "$($task.Canonical.name)"; Entry = $entry; HasBio = [bool]$entry.bio; HasBday = [bool]$entry.birthdate }) | Out-Null
+                }
+
+                # Progress
+                [System.Threading.Monitor]::Enter($sh)
+                try { $sh.counter = $sh.counter + 1; $cur = $sh.counter } finally { [System.Threading.Monitor]::Exit($sh) }
+                if ($sp -and (Test-Path -LiteralPath $sp)) {
+                    try {
+                        $s = Get-Content -LiteralPath $sp -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+                        if ($s) {
+                            $s.progress.current = $cur
+                            $s.progress.total   = $totC
+                            $s.progress.message = "phase B: promoting $($task.Canonical.name)"
+                            $tmp = "$sp.tmp"
+                            [System.IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
+                            Move-Item -LiteralPath $tmp -Destination $sp -Force
+                        }
+                    } catch {}
+                }
+            }
+
+            # Sequential merge: capture entries with bio + birthdate.
+            foreach ($r in $promotedBag) {
+                if (-not ($r.HasBio -and $r.HasBday)) { continue }
+                $entry = $r.Entry
+                $entry.lastFetched = (Get-Date).ToString('o')
+                # Strip internal markers before persisting.
+                if ($entry.Contains('jellyfinPersonId')) { $entry.Remove('jellyfinPersonId') | Out-Null }
+                if ($entry.Contains('jellyfinHasImage')) { $entry.Remove('jellyfinHasImage') | Out-Null }
+
+                $existed = Find-JVActress -Name $entry.name -Dataset $dataset
+                Set-JVActressEntry -Dataset $dataset -Entry $entry
+                if ($existed) { $stats.updated++ } else { $stats.added++ }
+                $stats.promoted++
+                [void]$preCaptured.Add($r.Name)
+            }
+            Save-JVActressDataset -Dataset $dataset | Out-Null
+            Add-JVJobLog "phase B done: promoted=$($stats.promoted) (will skip xcity for these); $($promotedBag.Count - $stats.promoted) had partial Jellyfin metadata and need xcity"
+        }
+    }
+
+    # Pre-skip phase (sequential, in-memory). Filters out empty names,
+    # already-populated entries, and Phase-B-captured names.
     $needFetch = New-Object System.Collections.Generic.List[Object]
     foreach ($n in $names) {
         $romaji = "$($n.name)".Trim()
         if (-not $romaji) { $stats.skipped++; continue }
+        if ($preCaptured.Contains($romaji)) { continue }
         if (-not $replaceExisting) {
             $existing = Find-JVActress -Name $romaji -JapaneseName $n.japaneseName -Aliases @($n.aliases) -Dataset $dataset
             if ($existing -and $existing.primaryUrl -and $existing.bio) {

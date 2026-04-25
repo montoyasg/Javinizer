@@ -22,6 +22,9 @@ Add-PodeRoute -Method Get -Path '/api/settings' -ScriptBlock {
             'emby.url'
             'emby.apikey'
             'actresses.refresh.parallelism'
+            'actresses.refresh.xcity.parallelism'
+            'actresses.refresh.jellyfin.parallelism'
+            'actresses.refresh.usejellyfin'
             'actresses.sync.parallelism'
         )
 
@@ -65,6 +68,9 @@ Add-PodeRoute -Method Post -Path '/api/settings' -ScriptBlock {
             'emby.url'
             'emby.apikey'
             'actresses.refresh.parallelism'
+            'actresses.refresh.xcity.parallelism'
+            'actresses.refresh.jellyfin.parallelism'
+            'actresses.refresh.usejellyfin'
             'actresses.sync.parallelism'
         )
 

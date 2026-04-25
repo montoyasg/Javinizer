@@ -290,16 +290,20 @@ function ActressLibrary({ onJob, addToast }) {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
   const [syncModal, setSyncModal] = useState(false);
-  const [refreshParallel, setRefreshParallel] = useState(3);
+  const [xcityParallel, setXcityParallel] = useState(3);
+  const [jellyfinParallel, setJellyfinParallel] = useState(8);
+  const [useJellyfin, setUseJellyfin] = useState(true);
 
-  // Hydrate refresh parallelism from settings on mount.
+  // Hydrate refresh-phase settings on mount.
   useEffect(() => {
     (async () => {
       try {
         const s = await api('/api/settings');
-        if (s.settings?.['actresses.refresh.parallelism']) {
-          setRefreshParallel(parseInt(s.settings['actresses.refresh.parallelism']) || 3);
-        }
+        const srv = s.settings || {};
+        const x = srv['actresses.refresh.xcity.parallelism'] ?? srv['actresses.refresh.parallelism'];
+        if (x) setXcityParallel(parseInt(x) || 3);
+        if (srv['actresses.refresh.jellyfin.parallelism']) setJellyfinParallel(parseInt(srv['actresses.refresh.jellyfin.parallelism']) || 8);
+        if (typeof srv['actresses.refresh.usejellyfin'] === 'boolean') setUseJellyfin(srv['actresses.refresh.usejellyfin']);
       } catch {}
     })();
   }, []);
@@ -321,7 +325,10 @@ function ActressLibrary({ onJob, addToast }) {
 
   const syncFromJellyfin = async () => {
     try {
-      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'jellyfin', replaceExisting:false, parallelism: refreshParallel } });
+      const res = await api('/api/actresses/refresh', {
+        method:'POST',
+        body:{ source:'jellyfin', replaceExisting:false, useJellyfin, xcityParallelism: xcityParallel, jellyfinParallelism: jellyfinParallel },
+      });
       if (res.jobId) { onJob?.(res.jobId); addToast?.('Sync from Jellyfin started', 'ok'); }
     } catch (e) { addToast?.('Sync failed: ' + e.message, 'error'); }
   };
@@ -330,14 +337,20 @@ function ActressLibrary({ onJob, addToast }) {
     const targets = data.entries.filter(e => !e.bio || !e.primaryUrl).map(e => ({ name: e.name, japaneseName: e.japaneseName, aliases: e.aliases }));
     if (targets.length === 0) { addToast?.('Nothing to refetch on this page', 'info'); return; }
     try {
-      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'names', names: targets, replaceExisting:true, parallelism: refreshParallel } });
+      const res = await api('/api/actresses/refresh', {
+        method:'POST',
+        body:{ source:'names', names: targets, replaceExisting:true, xcityParallelism: xcityParallel },
+      });
       if (res.jobId) { onJob?.(res.jobId); addToast?.(`Refetching ${targets.length} actresses`, 'ok'); }
     } catch (e) { addToast?.('Refetch failed: ' + e.message, 'error'); }
   };
 
   const refetchOne = async (entry) => {
     try {
-      const res = await api('/api/actresses/refresh', { method:'POST', body:{ source:'names', names:[{ name: entry.name, japaneseName: entry.japaneseName, aliases: entry.aliases }], replaceExisting:true, parallelism: refreshParallel } });
+      const res = await api('/api/actresses/refresh', {
+        method:'POST',
+        body:{ source:'names', names:[{ name: entry.name, japaneseName: entry.japaneseName, aliases: entry.aliases }], replaceExisting:true, xcityParallelism: xcityParallel },
+      });
       if (res.jobId) { onJob?.(res.jobId); addToast?.(`Refetching ${entry.name}`, 'ok'); }
     } catch (e) { addToast?.('Refetch failed: ' + e.message, 'error'); }
   };
@@ -358,14 +371,38 @@ function ActressLibrary({ onJob, addToast }) {
           <option value="missing-bio">Missing bio</option>
         </select>
         <div style={{flex:1}} />
-        <label style={{display:'flex', gap:5, alignItems:'center', fontSize:11, color:'var(--text-muted)'}} title="xcity-fetch parallelism (saved on blur). Lower = politer to xcity.">
-          <span>Parallel</span>
+        <label style={{display:'flex', gap:5, alignItems:'center', fontSize:11, color:'var(--text-muted)', userSelect:'none'}} title="When ON, Sync from Jellyfin first promotes whatever Jellyfin already has (bio + birthdate) and only hits xcity for actresses missing data. Saved on change.">
           <input
-            type="number" min={1} max={16} value={refreshParallel}
-            onChange={e=>setRefreshParallel(Math.max(1,Math.min(16,parseInt(e.target.value)||1)))}
+            type="checkbox" checked={useJellyfin}
+            onChange={async e => {
+              const v = e.target.checked;
+              setUseJellyfin(v);
+              try { await api('/api/settings', { method:'POST', body:{ settings:{ 'actresses.refresh.usejellyfin': v }}}); addToast?.('Saved', 'ok'); }
+              catch (err) { addToast?.(`Save failed: ${err.message}`, 'error'); }
+            }}
+            style={{accentColor:'var(--accent)'}}/>
+          Jellyfin first
+        </label>
+        <label style={{display:'flex', gap:5, alignItems:'center', fontSize:11, color:'var(--text-muted)'}} title="Phase B parallelism — concurrent Jellyfin GETs (local network, can go higher). Saved on blur.">
+          <span>JF</span>
+          <input
+            type="number" min={1} max={32} value={jellyfinParallel}
+            onChange={e=>setJellyfinParallel(Math.max(1,Math.min(32,parseInt(e.target.value)||1)))}
+            onBlur={async e => {
+              const v = Math.max(1, Math.min(32, parseInt(e.target.value) || 8));
+              try { await api('/api/settings', { method:'POST', body:{ settings:{ 'actresses.refresh.jellyfin.parallelism': v }}}); addToast?.('Saved', 'ok'); }
+              catch (err) { addToast?.(`Save failed: ${err.message}`, 'error'); }
+            }}
+            style={{...S.field, width:50, fontSize:11, padding:'2px 6px'}}/>
+        </label>
+        <label style={{display:'flex', gap:5, alignItems:'center', fontSize:11, color:'var(--text-muted)'}} title="Phase C parallelism — concurrent xcity fetches (remote, lower = politer). Saved on blur.">
+          <span>xcity</span>
+          <input
+            type="number" min={1} max={16} value={xcityParallel}
+            onChange={e=>setXcityParallel(Math.max(1,Math.min(16,parseInt(e.target.value)||1)))}
             onBlur={async e => {
               const v = Math.max(1, Math.min(16, parseInt(e.target.value) || 3));
-              try { await api('/api/settings', { method:'POST', body:{ settings:{ 'actresses.refresh.parallelism': v }}}); addToast?.('Saved', 'ok'); }
+              try { await api('/api/settings', { method:'POST', body:{ settings:{ 'actresses.refresh.xcity.parallelism': v }}}); addToast?.('Saved', 'ok'); }
               catch (err) { addToast?.(`Save failed: ${err.message}`, 'error'); }
             }}
             style={{...S.field, width:50, fontSize:11, padding:'2px 6px'}}/>

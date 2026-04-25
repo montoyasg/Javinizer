@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.6.0] - 2026-04-25
+
+### Added
+
+- **Jellyfin-first refresh pipeline.** Sync-from-Jellyfin now runs three
+  phases instead of two: (A) pull the person list and run name-swap
+  dedup, (B) **NEW** — for each canonical actress, fetch the full
+  Jellyfin person object (Overview / PremiereDate / AlternateNames /
+  ProductionLocations) in parallel and save it to `jvActresses.json`
+  when bio + birthdate are both populated, (C) for actresses still
+  missing data, fall back to the existing fuzzy-xcity flow. Result:
+  if you've previously synced your library to Jellyfin (any tool, not
+  just this one), re-pulling is now near-instant local-network work
+  and zero xcity calls.
+- **`Get-JVJellyfinClient.ps1`** — new shared Lib with three helpers
+  used by both refresh (Phase B) and sync flows:
+  `Resolve-JVJellyfinUserId`, `Get-JVJellyfinPersons` (with optional
+  `-WithMetadata`), `Get-JVJellyfinPersonFull`,
+  `ConvertFrom-JVIsoBirthdate` / `ConvertTo-JVIsoBirthdate`, and
+  `ConvertFrom-JVJellyfinPersonItem` (projects a Jellyfin Person
+  payload into a `jvActresses.json`-shaped entry).
+- **Per-phase parallelism + Jellyfin-first toggle in the Library top
+  bar.** Three new controls: a "Jellyfin first" checkbox (default
+  ON), a `JF` Jellyfin-side parallelism input (default 8, range
+  1–32 — local network can take more), and an `xcity` parallelism
+  input (default 3, range 1–16 — politeness). Each persists on
+  blur/change to its own setting key.
+- **`promoted` counter in refresh job summary.** Job result and log
+  now report how many actresses were saved from Jellyfin without
+  needing xcity.
+
+### Changed
+
+- `Set-JVJellyfinActresses` now uses the shared
+  `Resolve-JVJellyfinUserId` helper instead of its inline copy. CLI
+  use outside the JVWeb stack still works via an inline fallback.
+- New whitelisted settings keys:
+  `actresses.refresh.usejellyfin`,
+  `actresses.refresh.jellyfin.parallelism`,
+  `actresses.refresh.xcity.parallelism`. The legacy
+  `actresses.refresh.parallelism` stays whitelisted (and the route
+  reads it as a fallback) so older saved values keep working.
+- Refresh route accepts new body fields `useJellyfin`,
+  `jellyfinParallelism`, `xcityParallelism`. The legacy `parallelism`
+  field is still accepted as fallback.
+
 ## [1.5.0] - 2026-04-25
 
 ### Added

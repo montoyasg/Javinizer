@@ -73,15 +73,21 @@ function Set-JVJellyfinActresses {
     # 2. Discover userId for /Users/{userId}/Items endpoints (needed for full-item GET).
     $userId = $null
     if (('Bio' -in $Fields) -or ('Birthdate' -in $Fields) -or ('Aliases' -in $Fields) -or $MergeDuplicates) {
-        try {
-            $users = Invoke-RestMethod -Method Get -Uri "$base/Users$apiSuffix" -TimeoutSec 15 -ErrorAction Stop
-            $userId = ($users | Where-Object { $_.Policy.IsAdministrator -eq $true } | Select-Object -First 1).Id
-            if (-not $userId) { $userId = $users[0].Id }
-            _emit-log "using Jellyfin user $userId for item updates"
-        } catch {
-            _emit-log "WARN: couldn't list users ($_) — bio/birthdate/aliases/merge will be skipped"
-            $userId = $null
+        # Resolve-JVJellyfinUserId lives in JVWeb/Lib/Get-JVJellyfinClient.ps1
+        # and is dot-sourced in every Pode + ThreadJob runspace via the Lib glob.
+        $userId = if (Get-Command Resolve-JVJellyfinUserId -ErrorAction SilentlyContinue) {
+            Resolve-JVJellyfinUserId -Url $Url -ApiKey $ApiKey
+        } else {
+            # Fallback for callers outside the JVWeb stack (raw CLI use of the
+            # public function). Inline the older pattern.
+            try {
+                $users = Invoke-RestMethod -Method Get -Uri "$base/Users$apiSuffix" -TimeoutSec 15 -ErrorAction Stop
+                $admin = ($users | Where-Object { $_.Policy.IsAdministrator -eq $true } | Select-Object -First 1).Id
+                if ($admin) { $admin } elseif ($users.Count -gt 0) { $users[0].Id } else { $null }
+            } catch { $null }
         }
+        if ($userId) { _emit-log "using Jellyfin user $userId for item updates" }
+        else         { _emit-log "WARN: couldn't resolve userId — bio/birthdate/aliases/merge will be skipped" }
     }
 
     # 3. Optional merge pass for name-swap duplicates.
