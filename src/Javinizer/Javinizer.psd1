@@ -106,6 +106,7 @@
         'Save-JVSettings',
         'Set-JavlibraryOwned',
         'Set-JVEmbyThumbs',
+        'Set-JVJellyfinActresses',
         'Set-JVMovie',
         'Start-JVWeb',
         'Update-JVModule',

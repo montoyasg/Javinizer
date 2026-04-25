@@ -19,6 +19,8 @@ Add-PodeRoute -Method Get -Path '/api/settings' -ScriptBlock {
             'javdb.cookie.session'
             'javdb.cookie.cf_clearance'
             'javdb.cookie.user_agent'
+            'emby.url'
+            'emby.apikey'
         )
 
         $settings = Get-PodeState -Name 'settings'
@@ -58,6 +60,8 @@ Add-PodeRoute -Method Post -Path '/api/settings' -ScriptBlock {
             'javdb.cookie.session'
             'javdb.cookie.cf_clearance'
             'javdb.cookie.user_agent'
+            'emby.url'
+            'emby.apikey'
         )
 
         $body = $WebEvent.Data

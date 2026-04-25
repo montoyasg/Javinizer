@@ -836,9 +836,137 @@ function TranslatorPanel({ addToast }) {
   );
 }
 
+// ─── Jellyfin Panel ───────────────────────────────────────────────────────────
+
+const JELLYFIN_FIELDS = ['Photo', 'Bio', 'Birthdate', 'Aliases'];
+
+function JellyfinPanel({ addToast, onJob }) {
+  const [url, setUrl] = useState('');
+  const [apikey, setApikey] = useState('');
+  const [serverUrl, setServerUrl] = useState('');
+  const [serverKey, setServerKey] = useState('');
+  const [health, setHealth] = useState(null);
+  const [fields, setFields] = useState({ Photo:true, Bio:true, Birthdate:true, Aliases:true });
+  const [replaceExisting, setReplaceExisting] = useState(false);
+  const [mergeDuplicates, setMergeDuplicates] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const loadAll = useCallback(async () => {
+    try {
+      const res = await api('/api/settings');
+      const srv = res.settings || {};
+      const u = srv['emby.url'] || '';
+      const k = srv['emby.apikey'] || '';
+      setUrl(u); setServerUrl(u);
+      setApikey(k); setServerKey(k);
+      if (u && k) {
+        const h = await api('/api/jellyfin/health');
+        setHealth(h);
+      } else {
+        setHealth({ ok:false, reason:'not configured' });
+      }
+    } catch (e) { setHealth({ ok:false, reason: e.message }); }
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const saveIfChanged = useCallback(async (key, value, prev, setPrev) => {
+    if (value === prev) return;
+    try {
+      await api('/api/settings', { method:'POST', body:{ settings:{ [key]: value } } });
+      setPrev(value);
+      addToast?.('Saved', 'ok');
+      // Re-check health after URL/key change.
+      const h = await api('/api/jellyfin/health');
+      setHealth(h);
+    } catch (e) { addToast?.(`Save failed: ${e.message}`, 'error'); }
+  }, [addToast]);
+
+  const sync = async (dryRun = false) => {
+    const selected = Object.keys(fields).filter(f => fields[f]);
+    if (selected.length === 0) { addToast?.('Pick at least one field to sync', 'info'); return; }
+    setBusy(true);
+    try {
+      const res = await api('/api/jellyfin/sync-actresses', {
+        method:'POST',
+        body:{ fields: selected, replaceExisting, mergeDuplicates, dryRun },
+      });
+      if (res.jobId) { onJob?.(res.jobId); addToast?.(dryRun ? 'Preview started' : 'Sync started', 'ok'); }
+    } catch (e) { addToast?.(`Sync failed: ${e.message}`, 'error'); }
+    finally { setBusy(false); }
+  };
+
+  const dot =
+    !health             ? 'var(--text-muted)' :
+    health.ok           ? 'var(--green)' :
+                          'var(--red)';
+  const statusText =
+    !health             ? 'checking…' :
+    health.ok           ? `connected — ${health.serverName || '?'} v${health.version || '?'} (${health.latency_ms}ms)` :
+                          (health.reason === 'not configured' ? 'not configured' : `unreachable: ${health.reason || health.error || 'unknown'}`);
+
+  return (
+    <div style={{width:'100%', display:'flex', flexDirection:'column', gap:6, paddingTop:6, borderTop:'1px solid var(--border)'}}>
+      <div style={{display:'flex', alignItems:'center', gap:12, flexWrap:'wrap'}}>
+        <span style={S.label}>Jellyfin</span>
+        <div style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'var(--text-muted)'}}>
+          <span style={{width:8, height:8, borderRadius:'50%', background:dot, flexShrink:0}} />
+          <span>{statusText}</span>
+        </div>
+      </div>
+
+      <div style={{display:'flex', gap:8, alignItems:'center'}}>
+        <input
+          value={url}
+          onChange={e=>setUrl(e.target.value)}
+          onBlur={()=>saveIfChanged('emby.url', url.trim(), serverUrl, setServerUrl)}
+          placeholder="http://jellyfin.local:8096"
+          style={{...S.field, flex:1, fontSize:11, fontFamily:'var(--mono)'}}
+        />
+        <input
+          value={apikey}
+          onChange={e=>setApikey(e.target.value)}
+          onBlur={()=>saveIfChanged('emby.apikey', apikey.trim(), serverKey, setServerKey)}
+          type="password"
+          placeholder="API key"
+          style={{...S.field, flex:1, fontSize:11, fontFamily:'var(--mono)'}}
+        />
+      </div>
+
+      <div style={{display:'flex', gap:14, flexWrap:'wrap', alignItems:'center', fontSize:11, color:'var(--text-muted)'}}>
+        <span style={S.label}>Sync</span>
+        {JELLYFIN_FIELDS.map(f => (
+          <label key={f} style={{display:'flex', gap:4, alignItems:'center', cursor:'pointer', userSelect:'none'}}>
+            <input type="checkbox" checked={!!fields[f]} onChange={e=>setFields(s=>({...s,[f]:e.target.checked}))} style={{accentColor:'var(--accent)'}} />
+            {f}
+          </label>
+        ))}
+        <span style={{flex:1}} />
+        <label style={{display:'flex', gap:4, alignItems:'center', cursor:'pointer', userSelect:'none'}}>
+          <input type="checkbox" checked={replaceExisting} onChange={e=>setReplaceExisting(e.target.checked)} style={{accentColor:'var(--accent)'}} />
+          Replace existing
+        </label>
+        <label style={{display:'flex', gap:4, alignItems:'center', cursor:'pointer', userSelect:'none'}} title="Detect 'Yuna Ogura' ↔ 'Ogura Yuna' duplicates and merge them into one">
+          <input type="checkbox" checked={mergeDuplicates} onChange={e=>setMergeDuplicates(e.target.checked)} style={{accentColor:'var(--accent)'}} />
+          Merge duplicates
+        </label>
+      </div>
+
+      <div style={{display:'flex', gap:8, marginTop:2}}>
+        <button onClick={()=>sync(true)} disabled={busy || !health?.ok} style={{...S.btn}}>
+          👁 Preview (dry-run)
+        </button>
+        <button onClick={()=>sync(false)} disabled={busy || !health?.ok} style={{background:'var(--accent)', border:'none', color:'#fff', padding:'5px 14px', borderRadius:5, fontSize:12, fontWeight:600, opacity: (busy || !health?.ok) ? 0.5 : 1, cursor: (busy || !health?.ok) ? 'default' : 'pointer'}}>
+          ⇪ Sync to Jellyfin
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Sort Settings bar ────────────────────────────────────────────────────────
 
-function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved, addToast }) {
+function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved, addToast, onJob }) {
   const u = (k, v) => set(p => ({ ...p, [k]: v }));
   const [pickerTarget, setPickerTarget] = useState(null); // 'src' | 'dest'
   const dirty = useMemo(
@@ -995,6 +1123,7 @@ function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved, 
       </div>
       <JavdbSessionPanel s={s} set={set} addToast={addToast} />
       <TranslatorPanel addToast={addToast} />
+      <JellyfinPanel addToast={addToast} onJob={onJob} />
       {pickerTarget && (
         <FolderPickerModal
           initial={s[pickerTarget] || '/Volumes'}
@@ -1940,7 +2069,7 @@ function App() {
     <div style={{display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg)', color:'var(--text)', fontFamily:'var(--sans)', overflow:'hidden'}}>
       <Header showSettings={showSettings} setShowSettings={setShowSettings} onHelp={()=>setShowHelp(true)} onSortAll={()=>setShowSortAll(true)} onManualScrape={()=>setShowManualScrape(true)} videoCount={videos.length} view={view} setView={setView} />
       {activeJobId && <JobProgressBar jobId={activeJobId} onDone={() => setActiveJobId(null)} />}
-      {showSettings && view === 'sort' && <SortSettings s={settings} set={setSettings} serverSettings={serverSettings} onSaveDefaults={handleSaveDefaults} onResetToSaved={handleResetToSaved} addToast={add} />}
+      {showSettings && view === 'sort' && <SortSettings s={settings} set={setSettings} serverSettings={serverSettings} onSaveDefaults={handleSaveDefaults} onResetToSaved={handleResetToSaved} addToast={add} onJob={setActiveJobId} />}
       <div style={{flex:1, display:'flex', overflow:'hidden'}}>
         {view === 'library' ? (
           <ActressLibrary onJob={setActiveJobId} addToast={add} />
