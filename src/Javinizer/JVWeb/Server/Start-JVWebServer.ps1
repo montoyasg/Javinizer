@@ -98,6 +98,7 @@ function Start-JVWebServer {
             'Convert-JVTitle.ps1'
             'Get-TranslatedString.ps1'
             'Invoke-GoogleWebTranslate.ps1'
+            'Scraper.Xcity.ps1'
         )
         foreach ($name in $privateNeeded) {
             $p = Join-Path $moduleRoot 'Private' $name
