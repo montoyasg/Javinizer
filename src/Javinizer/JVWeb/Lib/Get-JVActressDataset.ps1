@@ -34,8 +34,12 @@ function Get-JVActressDataset {
     )
 
     if (-not $Force) {
-        $cached = Get-PodeState -Name 'actressDataset' -ErrorAction SilentlyContinue
-        if ($cached) { return $cached }
+        try {
+            $cached = Get-PodeState -Name 'actressDataset' -ErrorAction SilentlyContinue
+            if ($cached) { return $cached }
+        } catch {
+            # Not in a Pode runspace (e.g., ThreadJob worker) — fall through to disk read.
+        }
     }
 
     $path = Get-JVActressDatasetPath
@@ -44,9 +48,7 @@ function Get-JVActressDataset {
         if (Test-Path -LiteralPath $seed) {
             $path = $seed
         } else {
-            $empty = [ordered]@{}
-            Set-PodeState -Name 'actressDataset' -Value $empty | Out-Null
-            return $empty
+            return [ordered]@{}
         }
     }
 
@@ -63,7 +65,7 @@ function Get-JVActressDataset {
         $dataset = [ordered]@{}
     }
 
-    Set-PodeState -Name 'actressDataset' -Value $dataset | Out-Null
+    try { Set-PodeState -Name 'actressDataset' -Value $dataset | Out-Null } catch {}
     return $dataset
 }
 
@@ -84,7 +86,7 @@ function Save-JVActressDataset {
     [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $tmp -Destination $path -Force
 
-    Set-PodeState -Name 'actressDataset' -Value $Dataset | Out-Null
+    try { Set-PodeState -Name 'actressDataset' -Value $Dataset | Out-Null } catch {}
     return $path
 }
 
