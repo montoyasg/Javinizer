@@ -110,6 +110,86 @@ function ConvertTo-XcityAbsoluteUrl {
     return $script:XcityBaseUrl + '/idol/' + $Url
 }
 
+function ConvertTo-XcityNormalizedName {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+    # Strip macrons + collapse common long-vowel transliterations to a
+    # single canonical form so "Yūna Ogura" / "Yuuna Ogura" / "Yuna Ogura"
+    # all hash to the same string. Casefolded + whitespace-collapsed.
+    $n = $Name.ToLowerInvariant()
+    $n = $n -replace '[ūűû]', 'u' -replace '[ōőô]', 'o' -replace '[āăâ]', 'a' -replace '[īĭî]', 'i' -replace '[ēĕê]', 'e'
+    $n = $n -replace 'uu', 'u' -replace 'oo', 'o' -replace 'ou', 'o' -replace 'ei', 'e'
+    return ($n -replace '\s+', ' ').Trim()
+}
+
+function Get-XcityRomajiVariants {
+    <#
+    .SYNOPSIS
+    Generate plausible romaji spelling variants of a name. Used as fallback
+    queries when the exact-spelling xcity search returns nothing.
+
+    Variants emitted (in priority order, capped at 8):
+      1. The original name
+      2. Long-vowel forms: ū↔uu, ō↔oo, ā↔aa, ī↔ii, ē↔ee
+      3. Stripped-macron form: Yūna → Yuna
+      4. Double-vowel collapsed: Yuuna → Yuna
+      5. Token-swapped versions of (1)–(4)
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+
+    $primary = New-Object System.Collections.Generic.List[string]
+    $primary.Add($Name) | Out-Null
+
+    $stripped  = $Name -replace 'ū', 'u' -replace 'ō', 'o' -replace 'ā', 'a' -replace 'ī', 'i' -replace 'ē', 'e'
+    $expanded  = $Name -replace 'ū', 'uu' -replace 'ō', 'oo' -replace 'ā', 'aa' -replace 'ī', 'ii' -replace 'ē', 'ee'
+    $collapsed = $Name -replace 'uu', 'u' -replace 'oo', 'o' -replace 'ou', 'o'
+    foreach ($v in @($stripped, $expanded, $collapsed)) {
+        if ($v -and $v -ne $Name -and -not $primary.Contains($v)) { $primary.Add($v) | Out-Null }
+    }
+
+    # Token-swap each primary variant.
+    $all = New-Object System.Collections.Generic.List[string]
+    foreach ($v in $primary) {
+        if (-not $all.Contains($v)) { $all.Add($v) | Out-Null }
+        $tokens = $v -split '\s+' | Where-Object { $_ }
+        if ($tokens.Count -eq 2) {
+            $swap = "$($tokens[1]) $($tokens[0])"
+            if (-not $all.Contains($swap)) { $all.Add($swap) | Out-Null }
+        }
+    }
+
+    if ($all.Count -gt 8) { return @($all | Select-Object -First 8) }
+    return $all.ToArray()
+}
+
+function Test-XcityNameMatch {
+    <#
+    .SYNOPSIS
+    Returns $true if two names look like the same person after
+    normalization. Used to filter fuzzy-search results so a query for
+    "Yuna" doesn't return "Yuna Tanaka" as a false positive.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$A,
+        [Parameter(Mandatory)][string]$B
+    )
+    $na = ConvertTo-XcityNormalizedName $A
+    $nb = ConvertTo-XcityNormalizedName $B
+    if ($na -eq $nb) { return $true }
+
+    $ta = @($na -split '\s+' | Where-Object { $_ })
+    $tb = @($nb -split '\s+' | Where-Object { $_ })
+    # Both names have the same 2 tokens (possibly in different order).
+    if ($ta.Count -eq 2 -and $tb.Count -eq 2) {
+        $sortedA = ($ta | Sort-Object) -join ' '
+        $sortedB = ($tb | Sort-Object) -join ' '
+        if ($sortedA -eq $sortedB) { return $true }
+    }
+    return $false
+}
+
 function Find-XcityActressByName {
     [CmdletBinding()]
     param(
@@ -118,8 +198,28 @@ function Find-XcityActressByName {
         [Parameter(Mandatory)]
         [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
 
-        [int]$MaxResults = 10
+        [int]$MaxResults = 10,
+
+        # When set, retry with romaji variants (macron/double-vowel/swap) if
+        # the exact-spelling search returns no hits, and filter results by
+        # Test-XcityNameMatch so we don't accept loosely-related names.
+        [switch]$Fuzzy
     )
+
+    if ($Fuzzy) {
+        $variants = Get-XcityRomajiVariants -Name $Name
+        foreach ($cand in $variants) {
+            $hits = Find-XcityActressByName -Name $cand -Session $Session -MaxResults $MaxResults
+            if (-not $hits -or $hits.Count -eq 0) { continue }
+            $accepted = New-Object System.Collections.Generic.List[Object]
+            foreach ($h in $hits) {
+                if (Test-XcityNameMatch -A $Name -B $h.Name) { $accepted.Add($h) | Out-Null }
+                if ($accepted.Count -ge $MaxResults) { break }
+            }
+            if ($accepted.Count -gt 0) { return ,$accepted.ToArray() }
+        }
+        return ,@()
+    }
 
     Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
     $query = [System.Web.HttpUtility]::UrlEncode($Name)

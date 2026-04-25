@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.4.0] - 2026-04-25
+
+### Added
+
+- **Fuzzy / transliteration romaji variants for xcity search.** New
+  helpers in `Scraper.Xcity.ps1`: `Get-XcityRomajiVariants` generates
+  spelling alternatives (macron ↔ double-vowel ↔ stripped: Yūna /
+  Yuuna / Yuna), plus token-swapped versions of each, capped at 8.
+  `Test-XcityNameMatch` filters candidate hits so a query for
+  `"Yuna Ogura"` won't accept `"Yuna Tanaka"`. `Find-XcityActressByName`
+  gains a `-Fuzzy` switch that walks variants in priority order, falls
+  back to the next variant on miss, and applies the match filter.
+- **Sync-from-Jellyfin uses fuzzy by default.** The actress-refresh
+  worker now calls `Find-XcityActressByName -Fuzzy`. If the original
+  spelling misses, it retries with each known alias (also fuzzy)
+  before giving up. Halves no-match rate for actresses indexed under
+  alternate romaji styles.
+
+### Changed
+
+- **No more stub entries on no-match.** When xcity (after fuzzy +
+  alias retries) genuinely has no record of an actress, the worker
+  now skips silently. The `notFound` count in the job summary still
+  surfaces these names, and the log records each unmatched name —
+  but `jvActresses.json` no longer accumulates skeleton placeholder
+  entries for actresses xcity doesn't know about. Reverses the stub
+  behavior introduced in v1.2.0.
+
 ## [1.3.0] - 2026-04-25
 
 ### Added

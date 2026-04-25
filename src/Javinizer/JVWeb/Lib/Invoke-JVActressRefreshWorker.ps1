@@ -132,14 +132,21 @@ function Invoke-JVActressRefreshWorker {
         $outcome = $null
 
         try {
-            $hits = Find-XcityActressByName -Name $romaji -Session $session -MaxResults 3
-            if (-not $hits -or $hits.Count -eq 0) {
-                $outcome = @{
-                    status       = 'notFound'
-                    name         = $romaji
-                    japaneseName = $n.japaneseName
-                    aliases      = @($n.aliases)
+            # Fuzzy = try romaji variants (macron/double-vowel/token-swap) and
+            # filter candidate hits by Test-XcityNameMatch. If still no match,
+            # also try each known alias before giving up.
+            $hits = Find-XcityActressByName -Name $romaji -Session $session -MaxResults 3 -Fuzzy
+            if ((-not $hits -or $hits.Count -eq 0) -and $n.aliases) {
+                foreach ($alt in @($n.aliases)) {
+                    if (-not $alt) { continue }
+                    $hits = Find-XcityActressByName -Name $alt -Session $session -MaxResults 3 -Fuzzy
+                    if ($hits -and $hits.Count -gt 0) { break }
                 }
+            }
+            if (-not $hits -or $hits.Count -eq 0) {
+                # Skip silently — no stub. The job summary will report
+                # `notFound` count; the user can review the log for names.
+                $outcome = @{ status = 'notFound'; name = $romaji }
             } else {
                 $top = $hits[0]
                 $referer = "https://xxx.xcity.jp/idol/?q=$([System.Web.HttpUtility]::UrlEncode($romaji))"
@@ -205,29 +212,10 @@ function Invoke-JVActressRefreshWorker {
                 Set-JVActressEntry -Dataset $dataset -Entry $entry
                 if ($existed) { $stats.updated++ } else { $stats.added++ }
             } elseif ($r.status -eq 'notFound') {
-                $stub = Find-JVActress -Name $r.name -JapaneseName $r.japaneseName -Aliases $r.aliases -Dataset $dataset
-                if (-not $stub) {
-                    $stubEntry = [ordered]@{
-                        name         = $r.name
-                        japaneseName = $r.japaneseName
-                        aliases      = @($r.aliases)
-                        birthdate    = $null
-                        bloodType    = $null
-                        birthCity    = $null
-                        height       = $null
-                        measurements = $null
-                        hobby        = $null
-                        specialSkill = $null
-                        bio          = $null
-                        primaryUrl   = $null
-                        xcityId      = $null
-                        xcityUrl     = $null
-                        lastFetched  = (Get-Date).ToString('o')
-                    }
-                    Set-JVActressEntry -Dataset $dataset -Entry $stubEntry
-                    $stats.added++
-                }
+                # Skip — no entry created. User can re-run later or edit
+                # jvActresses.json by hand if they want a stub.
                 $stats.notFound++
+                Add-JVJobLog "no xcity match: $($r.name)"
             }
         } catch {
             $stats.errors += "merge: $_"
