@@ -122,15 +122,25 @@ function Start-JVWebServer {
         }
         Add-PodeStaticRoute -Path '/' -Source $staticPath -Defaults @('index.html')
 
-        # Force browsers to revalidate /next/ assets every load. Without this,
-        # users would keep getting their cached app.jsx after a module upgrade
-        # (e.g., the v1.8.2 progress-bar-disappear fix wouldn't reach them
-        # until they hard-refreshed). The 304 path keeps actual transfer
-        # cheap when nothing has changed.
-        Add-PodeMiddleware -Name 'NoCacheNext' -ScriptBlock {
+        # Force browsers to revalidate /next/ assets and /api/ responses on
+        # every request. Without this:
+        #  - /next/  → users keep getting cached app.jsx after a module
+        #    upgrade (the v1.8.2 progress-bar-disappear fix wouldn't reach
+        #    them until they hard-refreshed; v1.8.3 added the /next/
+        #    middleware to fix this).
+        #  - /api/   → after running cleanup the Library view kept showing
+        #    the OLD entries because the browser cached the
+        #    /api/actresses response (user reported this on v1.10.1).
+        #    v1.10.2 extends the no-cache to /api/ so loadPage() always
+        #    fetches fresh data after a mutation.
+        # The 304 path keeps actual transfer cheap when nothing changed.
+        Add-PodeMiddleware -Name 'NoCacheUI' -ScriptBlock {
             try {
                 $p = "$($WebEvent.Path)"
-                if ($p -and $p.StartsWith('/next', [System.StringComparison]::OrdinalIgnoreCase)) {
+                if ($p -and (
+                    $p.StartsWith('/next', [System.StringComparison]::OrdinalIgnoreCase) -or
+                    $p.StartsWith('/api',  [System.StringComparison]::OrdinalIgnoreCase)
+                )) {
                     Set-PodeHeader -Name 'Cache-Control' -Value 'no-cache, must-revalidate'
                     Set-PodeHeader -Name 'Pragma'        -Value 'no-cache'
                 }

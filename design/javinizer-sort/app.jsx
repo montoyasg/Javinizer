@@ -5,7 +5,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 // Compared against /api/version's server version; mismatch means
 // the browser is running cached old app.jsx — a hard-refresh
 // (Cmd+Shift+R) is needed to pick up server-side fixes.
-const APP_JSX_VERSION = '1.10.1';
+const APP_JSX_VERSION = '1.10.2';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -16,6 +16,12 @@ async function api(path, opts = {}) {
     method: opts.method || 'GET',
     headers: opts.body ? { 'Content-Type': 'application/json' } : {},
     body: opts.body ? JSON.stringify(opts.body) : undefined,
+    // Bypass the browser's HTTP cache for every API call. Without this,
+    // a mutation followed by a re-fetch (e.g. cleanup → reloadAll) could
+    // serve the pre-mutation cached response and the UI would show stale
+    // data even though the server-side dataset is correct. The Pode
+    // no-cache middleware sets headers, this is belt-and-suspenders.
+    cache: 'no-store',
   };
   const res = await fetch(path, init);
   const json = await res.json().catch(() => ({}));

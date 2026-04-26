@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.10.2] - 2026-04-26
+
+### Fixed
+
+- **Library view kept showing stale data after cleanup.** User
+  reported that after running v1.10.1's "Dedup duplicate aliases"
+  cleanup, the cleanup modal correctly showed `✓ Nothing to clean`
+  on the next dry-run (proving the server-side dataset was fixed),
+  but the Library view still rendered the original 200-duplicate
+  alias chips. Root cause: the browser was serving the pre-cleanup
+  `/api/actresses` response from its HTTP cache. v1.8.3's no-cache
+  middleware only covered `/next/*` (the React UI itself); `/api/*`
+  responses inherited Pode's defaults and were getting cached.
+  - **Server-side fix:** the no-cache middleware now matches both
+    `/next/*` AND `/api/*`, sending `Cache-Control: no-cache,
+    must-revalidate` on every API response. The 304 path keeps
+    transfer cost cheap when nothing's changed.
+  - **Client-side fix (belt-and-suspenders):** the `api()` fetch
+    helper now passes `cache: 'no-store'` so the browser bypasses
+    its cache for every API call, regardless of what headers the
+    server sends.
+
 ## [1.10.1] - 2026-04-26
 
 ### Fixed
