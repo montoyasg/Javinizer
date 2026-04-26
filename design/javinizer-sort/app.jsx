@@ -5,7 +5,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 // Compared against /api/version's server version; mismatch means
 // the browser is running cached old app.jsx — a hard-refresh
 // (Cmd+Shift+R) is needed to pick up server-side fixes.
-const APP_JSX_VERSION = '1.9.2';
+const APP_JSX_VERSION = '1.10.0';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -463,6 +463,173 @@ function ActressCleanupModal({ onClose, onDone, addToast }) {
   );
 }
 
+// ─── Jellyfin Mojibake Cleanup Modal ──────────────────────────────────────────
+// Two-step: Scan (dry-run) → preview → Apply. Both steps are background jobs
+// (walking thousands of movies via Jellyfin's REST API takes minutes), surfaced
+// via the global JobProgressBar through onJob. Modal polls /api/jobs/:id
+// directly to grab the job's `result` once status='done'.
+
+function JellyfinMojibakeCleanupModal({ onClose, onJob, addToast }) {
+  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState('idle');  // 'idle' | 'scanning' | 'preview' | 'applying' | 'done'
+  const [result, setResult] = useState(null);  // { moviesScanned, moviesPatched, peopleRemoved, personsDeleted, modifiedMovies, deletedPersons, dryRun }
+
+  // Kick off a background job, poll until it finishes, return its result.
+  const runJob = useCallback(async (dryRun) => {
+    setBusy(true);
+    try {
+      const start = await api('/api/jellyfin/cleanup-mojibake', { method:'POST', body:{ dryRun } });
+      const id = start?.jobId;
+      if (!id) throw new Error('no jobId returned');
+      onJob?.(id);
+
+      // Poll until done. Same cadence as JobProgressBar's main loop.
+      while (true) {
+        await new Promise(r => setTimeout(r, 800));
+        const s = await api(`/api/jobs/${id}`);
+        if (s.status === 'done')      return s.result;
+        if (s.status === 'error')     throw new Error(s.error || 'job failed');
+        if (s.status === 'cancelled') throw new Error('job cancelled');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [onJob]);
+
+  const scan = async () => {
+    setPhase('scanning');
+    try {
+      const r = await runJob(true);
+      setResult(r);
+      setPhase('preview');
+    } catch (e) {
+      addToast?.('Scan failed: ' + e.message, 'error');
+      setPhase('idle');
+    }
+  };
+
+  const apply = async () => {
+    setPhase('applying');
+    try {
+      const r = await runJob(false);
+      setResult(r);
+      setPhase('done');
+      addToast?.(`Patched ${r.moviesPatched} movie${r.moviesPatched===1?'':'s'}, deleted ${r.personsDeleted} person record${r.personsDeleted===1?'':'s'}`, 'ok');
+    } catch (e) {
+      addToast?.('Apply failed: ' + e.message, 'error');
+      setPhase('preview');
+    }
+  };
+
+  const willOrDid = phase === 'done' ? 'Patched' : 'Will patch';
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1500}} onClick={busy ? undefined : onClose}>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,width:680,maxWidth:'92vw',maxHeight:'85vh',padding:18,display:'flex',flexDirection:'column',gap:12,overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+          <div style={{fontSize:16,fontWeight:600}}>🧹 Clean Jellyfin mojibake actors</div>
+          <button onClick={onClose} disabled={busy} style={{background:'none',border:'none',color:'var(--text-muted)',cursor:busy?'not-allowed':'pointer',fontSize:20,opacity:busy?0.4:1}}>×</button>
+        </div>
+
+        <div style={{fontSize:12,color:'var(--text-soft)',flexShrink:0}}>
+          Scans every movie in Jellyfin, removes <strong>People</strong> entries whose name contains
+          mojibake characters (control chars, Latin-1 Supplement like <code>â Å ã</code>, or U+FFFD),
+          then deletes the resulting orphan person records. Real macron vowels (<code>ū ō ā</code>)
+          are at U+0100+ and are not matched.
+          <br/>
+          <span style={{color:'var(--text-muted)'}}>
+            With "Save metadata as NFO" enabled in Jellyfin, the cleaned cast lists get written back
+            to your <code>.nfo</code> files automatically on the next metadata save.
+          </span>
+        </div>
+
+        <div style={{flex:1,overflowY:'auto',background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:6,padding:10}}>
+          {phase === 'idle' && (
+            <div style={{color:'var(--text-muted)',fontSize:13,textAlign:'center',padding:30}}>
+              Click <strong>Scan (dry-run)</strong> to see what would change.
+            </div>
+          )}
+          {(phase === 'scanning' || phase === 'applying') && (
+            <div style={{color:'var(--text-muted)',fontSize:12,textAlign:'center',padding:20}}>
+              {phase === 'scanning' ? 'Scanning Jellyfin (dry-run)…' : 'Applying changes…'}
+              <div style={{fontSize:11,marginTop:6,color:'var(--text-soft)'}}>
+                Progress shown in the top progress bar.
+              </div>
+            </div>
+          )}
+          {(phase === 'preview' || phase === 'done') && result && (
+            <div style={{display:'flex',flexDirection:'column',gap:8,fontSize:11}}>
+              <div style={{color:'var(--text-soft)'}}>
+                {willOrDid} <strong>{result.moviesPatched}</strong> movie{result.moviesPatched===1?'':'s'} ·
+                {' '}removed <strong>{result.peopleRemoved}</strong> People entr{result.peopleRemoved===1?'y':'ies'} ·
+                {' '}{phase === 'done' ? 'deleted' : 'will delete'} <strong>{result.personsDeleted ?? (result.deletedPersons?.length ?? 0)}</strong> orphan person record{(result.deletedPersons?.length ?? 0)===1?'':'s'}.
+                {' '}Scanned {result.moviesScanned} total.
+              </div>
+              {result.modifiedMovies && result.modifiedMovies.length > 0 && (
+                <div>
+                  <div style={{fontWeight:600,color:'var(--text-muted)',textTransform:'uppercase',fontSize:10,letterSpacing:'0.06em',marginTop:6,marginBottom:3}}>
+                    movies ({result.modifiedMovies.length})
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column',gap:2,fontFamily:'var(--mono)',fontSize:11}}>
+                    {result.modifiedMovies.slice(0, 200).map((m, i) => (
+                      <div key={i} style={{color:'var(--text-soft)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                        <span>{m.name}</span>
+                        <span style={{color:'var(--text-muted)'}}> — {(m.removed || []).join(', ')}</span>
+                      </div>
+                    ))}
+                    {result.modifiedMovies.length > 200 && <div style={{color:'var(--text-muted)',fontStyle:'italic'}}>… +{result.modifiedMovies.length - 200} more</div>}
+                  </div>
+                </div>
+              )}
+              {result.deletedPersons && result.deletedPersons.length > 0 && (
+                <div>
+                  <div style={{fontWeight:600,color:'var(--text-muted)',textTransform:'uppercase',fontSize:10,letterSpacing:'0.06em',marginTop:6,marginBottom:3}}>
+                    {phase === 'done' ? 'persons deleted' : 'persons to delete'} ({result.deletedPersons.length})
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column',gap:2,fontFamily:'var(--mono)',fontSize:11}}>
+                    {result.deletedPersons.slice(0, 200).map((p, i) => (
+                      <div key={i} style={{color:'var(--text-soft)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
+                    ))}
+                    {result.deletedPersons.length > 200 && <div style={{color:'var(--text-muted)',fontStyle:'italic'}}>… +{result.deletedPersons.length - 200} more</div>}
+                  </div>
+                </div>
+              )}
+              {result.errors && result.errors.length > 0 && (
+                <div>
+                  <div style={{fontWeight:600,color:'var(--red, #c55)',textTransform:'uppercase',fontSize:10,letterSpacing:'0.06em',marginTop:6,marginBottom:3}}>
+                    errors ({result.errors.length})
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column',gap:2,fontFamily:'var(--mono)',fontSize:11}}>
+                    {result.errors.slice(0, 50).map((e, i) => (
+                      <div key={i} style={{color:'var(--red, #c55)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e}</div>
+                    ))}
+                    {result.errors.length > 50 && <div style={{color:'var(--text-muted)',fontStyle:'italic'}}>… +{result.errors.length - 50} more</div>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid var(--border)',paddingTop:10,flexShrink:0}}>
+          <button onClick={onClose} disabled={busy} style={{...S.btn, opacity:busy?0.5:1}}>Close</button>
+          {(phase === 'idle' || phase === 'preview') && (
+            <button onClick={scan} disabled={busy} style={{...S.btn}}>
+              ↻ {phase === 'preview' ? 'Re-scan' : 'Scan (dry-run)'}
+            </button>
+          )}
+          {phase === 'preview' && result && result.moviesPatched + (result.deletedPersons?.length ?? 0) > 0 && (
+            <button onClick={apply} disabled={busy}
+                    style={{background:'var(--red, #c55)',border:'none',color:'#fff',padding:'6px 16px',borderRadius:5,fontSize:12,fontWeight:600,opacity:busy?0.5:1,cursor:busy?'default':'pointer'}}>
+              🗑 Apply ({result.moviesPatched} movie{result.moviesPatched===1?'':'s'}, {result.deletedPersons?.length ?? 0} person{(result.deletedPersons?.length??0)===1?'':'s'})
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Actress Library ──────────────────────────────────────────────────────────
 
 function ActressLibrary({ onJob, addToast }) {
@@ -477,6 +644,7 @@ function ActressLibrary({ onJob, addToast }) {
   const [selected, setSelected] = useState(null);
   const [syncModal, setSyncModal] = useState(false);
   const [cleanupModal, setCleanupModal] = useState(false);
+  const [jfCleanupModal, setJfCleanupModal] = useState(false);
   const [xcityParallel, setXcityParallel] = useState(3);
   const [jellyfinParallel, setJellyfinParallel] = useState(8);
   const [useJellyfin, setUseJellyfin] = useState(true);
@@ -664,6 +832,7 @@ function ActressLibrary({ onJob, addToast }) {
         </label>
         <button onClick={refetchMissing} style={{...S.btn}} title="Refetch from xcity for actresses with missing bio/photo currently loaded in this view">↻ Refetch missing</button>
         <button onClick={()=>setCleanupModal(true)} style={{...S.btn}} title="Remove blank-name and stub entries from the local dataset">🧹 Cleanup</button>
+        <button onClick={()=>setJfCleanupModal(true)} style={{...S.btn}} title="Walk Jellyfin, drop mojibake-named People entries from each movie, delete orphan person records. With 'Save metadata as NFO' enabled in Jellyfin, the cleaned cast lists get written back to your .nfo files automatically.">🧹 Clean Jellyfin</button>
         <button onClick={syncFromJellyfin} style={{...S.btn}} title="Pull Jellyfin's actress list and enrich each from xcity">
           ⇩ Sync from Jellyfin
         </button>
@@ -674,6 +843,7 @@ function ActressLibrary({ onJob, addToast }) {
 
       {syncModal && <JellyfinSyncModal onClose={()=>setSyncModal(false)} onJob={(id)=>{ onJob?.(id); setSyncModal(false); }} addToast={addToast} />}
       {cleanupModal && <ActressCleanupModal onClose={()=>setCleanupModal(false)} onDone={()=>{ setCleanupModal(false); reloadAll(); }} addToast={addToast} />}
+      {jfCleanupModal && <JellyfinMojibakeCleanupModal onClose={()=>setJfCleanupModal(false)} onJob={onJob} addToast={addToast} />}
 
       {entries.length === 0 && !loading ? (
         <div style={{color:'var(--text-muted)', fontSize:13, textAlign:'center', padding:40}}>

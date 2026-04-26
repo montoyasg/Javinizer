@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.10.0] - 2026-04-26
+
+### Added
+
+- **Jellyfin-side mojibake cleanup.** New `🧹 Clean Jellyfin`
+  button in the Library top bar. Walks every movie via the
+  Jellyfin REST API, removes any `People` entry whose name matches
+  the v1.9.2 mojibake regex (control chars, Latin-1 Supplement,
+  U+FFFD), then deletes the resulting orphan person records.
+  Two-step UI: **Scan (dry-run)** lists what would change,
+  **🗑 Apply** runs the actual patches. Both run as background
+  jobs surfaced through the existing `JobProgressBar`.
+  - With "Save metadata as NFO" enabled in Jellyfin (the typical
+    setup), Jellyfin writes the cleaned cast lists back to each
+    movie's `.nfo` automatically on its next metadata save —
+    no Javinizer-side filesystem writes needed. The full chain
+    (Jellyfin DB → NFO → next Sync from Jellyfin) ends up clean
+    in one pass.
+  - New endpoint `POST /api/jellyfin/cleanup-mojibake` body
+    `{ dryRun?: bool }`, returns `{ jobId }`. Job kind:
+    `jellyfin-mojibake-cleanup`.
+  - New worker `Invoke-JVJellyfinMojibakeCleanupWorker` reuses
+    the shared `Resolve-JVJellyfinUserId` helper from
+    `Get-JVJellyfinClient.ps1` and the same regex as v1.9.2's
+    actress cleanup so the two flows agree on what counts as
+    broken data.
+
 ## [1.9.2] - 2026-04-26
 
 ### Added

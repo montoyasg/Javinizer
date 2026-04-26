@@ -28,6 +28,41 @@ Add-PodeRoute -Method Get -Path '/api/jellyfin/health' -ScriptBlock {
     }
 }
 
+# POST /api/jellyfin/cleanup-mojibake — start a background job that scans
+# every movie's People array for mojibake-named entries (control chars,
+# Latin-1 Supplement, U+FFFD), patches them out via the Jellyfin REST API,
+# then deletes the resulting orphan person records. Same regex as v1.9.2's
+# actress cleanup so the two flows agree on what counts as broken data.
+# Body: { dryRun?: bool }
+Add-PodeRoute -Method Post -Path '/api/jellyfin/cleanup-mojibake' -ScriptBlock {
+    try {
+        $settings = Get-PodeState -Name 'settings'
+        $url = $settings.'emby.url'
+        $key = $settings.'emby.apikey'
+        if (-not $url -or -not $key) {
+            Write-PodeJsonResponse -Value @{ error = 'emby.url and emby.apikey must be configured' } -StatusCode 400
+            return
+        }
+
+        $body = $WebEvent.Data
+        $jobArgs = @{
+            embyUrl    = $url
+            embyApiKey = $key
+            dryRun     = [bool]$body.dryRun
+        }
+
+        $libDir = $env:JVWEB_LIB
+        $manifestPath = $env:JVWEB_MANIFEST
+        $job = Start-JVJob -Kind 'jellyfin-mojibake-cleanup' -ModulePath $manifestPath -LibDir $libDir `
+            -Arguments $jobArgs -WorkerFunction 'Invoke-JVJellyfinMojibakeCleanupWorker'
+
+        Write-PodeJsonResponse -Value @{ jobId = $job.jobId }
+    } catch {
+        Write-PodeHost "jellyfin cleanup-mojibake error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red
+        Write-PodeJsonResponse -Value @{ error = "$($PSItem.Exception.Message)" } -StatusCode 500
+    }
+}
+
 # POST /api/jellyfin/sync-actresses — start a background sync job.
 # Body: { fields?: ['Photo','Bio','Birthdate','Aliases'], replaceExisting?, mergeDuplicates?, dryRun? }
 Add-PodeRoute -Method Post -Path '/api/jellyfin/sync-actresses' -ScriptBlock {
