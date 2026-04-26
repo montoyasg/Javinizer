@@ -1,5 +1,12 @@
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
+// Frontend version constant. Bumped on every release alongside
+// Javinizer.psd1's ModuleVersion + the index.html cache-buster.
+// Compared against /api/version's server version; mismatch means
+// the browser is running cached old app.jsx — a hard-refresh
+// (Cmd+Shift+R) is needed to pick up server-side fixes.
+const APP_JSX_VERSION = '1.8.6';
+
 // ─── API ─────────────────────────────────────────────────────────────────────
 
 const DEFAULT_ROOT = '/Volumes/Media/';
@@ -2542,12 +2549,28 @@ function App() {
       {showHelp && <HelpModal onClose={()=>setShowHelp(false)} />}
       {showSortAll && <SortAllModal videos={videos} settings={settings} onClose={()=>setShowSortAll(false)} />}
       {showManualScrape && <ManualModal onClose={()=>setShowManualScrape(false)} toast={add} />}
-      {version && (
-        <div style={{position:'fixed', left:8, bottom:6, fontSize:10, color:'var(--text-muted)', fontFamily:'var(--mono, monospace)', pointerEvents:'none', userSelect:'none', opacity:0.55, zIndex:1}}
-             title={`Javinizer v${version} — running module reported by /api/version`}>
-          v{version}
-        </div>
-      )}
+      {(version || true) && (() => {
+        // version (server) comes from /api/version. APP_JSX_VERSION (frontend)
+        // is baked into this file at build time. Mismatch means the browser
+        // is running cached old app.jsx — common after a server upgrade if
+        // the user hasn't hard-refreshed.
+        const mismatch = version && version !== APP_JSX_VERSION;
+        const label = !version
+          ? `v${APP_JSX_VERSION} (ui)`
+          : mismatch
+            ? `ui v${APP_JSX_VERSION} ↛ server v${version}`
+            : `v${APP_JSX_VERSION}`;
+        const color = mismatch ? 'var(--orange, #d97706)' : 'var(--text-muted)';
+        const tip = mismatch
+          ? `Browser is running cached app.jsx v${APP_JSX_VERSION} but server is v${version}. Hard-refresh (Cmd/Ctrl+Shift+R) to pick up the latest UI.`
+          : `Javinizer v${APP_JSX_VERSION} (frontend matches server)`;
+        return (
+          <div style={{position:'fixed', left:8, bottom:6, fontSize:10, color, fontFamily:'var(--mono, monospace)', userSelect:'none', opacity: mismatch ? 0.95 : 0.55, zIndex:1, fontWeight: mismatch ? 600 : 400, cursor: mismatch ? 'help' : 'default'}}
+               title={tip}>
+            {label}{mismatch ? ' ⚠' : ''}
+          </div>
+        );
+      })()}
     </div>
   );
 }

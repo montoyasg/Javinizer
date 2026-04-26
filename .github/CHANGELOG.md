@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.6] - 2026-04-26
+
+### Added
+
+- **Frontend ↔ server version-mismatch warning.** Diagnosing
+  whether the browser is actually running the latest `app.jsx`
+  (vs. a stale cached copy from before v1.8.3's no-cache fix) used
+  to require reading DevTools stack traces. Now the bottom-left
+  version badge bakes in a constant `APP_JSX_VERSION` and compares
+  it against `/api/version`. If they differ, the badge turns orange,
+  shows `ui v1.8.6 ↛ server v1.8.7 ⚠`, and the tooltip tells the
+  user to hard-refresh. Match shows just `v1.8.6` as before.
+- This was prompted by a user report where pre-v1.8.2 cached
+  `app.jsx` was retrying every 404 indefinitely (instead of clearing
+  on 404 as v1.8.2+ does), and the only way to confirm was reading
+  the JS stack trace in DevTools. With v1.8.6 the badge alerts on
+  the next page load.
+
 ## [1.8.5] - 2026-04-26
 
 ### Fixed
