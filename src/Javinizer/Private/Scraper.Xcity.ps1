@@ -111,6 +111,13 @@ function Invoke-XcityRequest {
 
         [int]$MaxRetries = 4,
 
+        # Hard wall-time ceiling for THIS call across all retries. Without
+        # this, a 503 with Retry-After: 120 + four retries can sleep 480s
+        # while the rest of a parallelism=1 pipeline waits behind it. The
+        # per-name fuzzy stopwatch only checks between variants, not inside
+        # a single call.
+        [int]$MaxTotalTimeSec = 60,
+
         # Bypass the disk cache for this request (still writes back on success).
         [switch]$NoCache
     )
@@ -165,6 +172,7 @@ function Invoke-XcityRequest {
     }
 
     $backoffSeconds = @(5, 15, 60, 180)
+    $callStart = [DateTime]::UtcNow
     for ($attempt = 0; $attempt -le $MaxRetries; $attempt++) {
         try {
             $response = Invoke-WebRequest @reqParams
@@ -223,6 +231,21 @@ function Invoke-XcityRequest {
             $reason = if ($retryAfterSec) {
                 if ($retryAfterSec -gt 120) { "Retry-After=$retryAfterSec capped" } else { "Retry-After=$retryAfterSec" }
             } else { "schedule" }
+
+            # Hard per-call wall-time check: don't start a sleep we wouldn't
+            # finish before MaxTotalTimeSec. Without this, a single bad name
+            # blocks a parallelism=1 pipeline for up to 4×120 = 480s while
+            # this loop happily retries.
+            $elapsedSec = ([DateTime]::UtcNow - $callStart).TotalSeconds
+            $remainingSec = $MaxTotalTimeSec - $elapsedSec
+            if ($remainingSec -le 0 -or $sleep -ge $remainingSec) {
+                if ($null -ne $script:XcityBackoffLog) {
+                    $ts = Get-Date -Format 'HH:mm:ss'
+                    $script:XcityBackoffLog.Add("[$ts] xcity wall-time budget (${MaxTotalTimeSec}s) exhausted for [$Uri] after attempt $($attempt + 1) (would sleep ${sleep}s, ${remainingSec}s left); giving up") | Out-Null
+                }
+                throw "[Xcity] wall-time budget exhausted for [$Uri] (status=$statusCode, $reason, would sleep ${sleep}s)"
+            }
+
             Write-Verbose "[Xcity] HTTP $statusCode for [$Uri], backing off ${sleep}s ($reason, attempt $($attempt + 1)/$MaxRetries)"
             # Surface backoff to whatever runspace is driving this call so the
             # job log can show why progress paused. The buffer is per-runspace

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.1] - 2026-04-26
+
+### Fixed
+
+- **`Invoke-XcityRequest` could still sleep up to ~480 seconds on a
+  single bad name** even after the v1.8.0 changes, which manifested
+  as the refresh job appearing stuck for several minutes at a time
+  with `parallelism=1`. The per-name 90 s fuzzy stopwatch only
+  checks between romaji variants, not inside a single call — a
+  series of `Retry-After: 120` responses across 4 retries
+  trivially blew past it. v1.8.1 adds a hard per-call wall-time
+  budget (`-MaxTotalTimeSec`, default **60 s**): if the cumulative
+  retry+sleep time would exceed the budget, the function throws
+  immediately and emits a `xcity wall-time budget exhausted`
+  log line. Combined with the fuzzy stopwatch, worst-case wall
+  time for a single name is now ≈ 60 s × (1 + alias count), so
+  ~60–120 s in practice.
+
 ## [1.8.0] - 2026-04-26
 
 ### Changed
