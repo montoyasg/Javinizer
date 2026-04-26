@@ -53,12 +53,34 @@ function Get-JVJobState {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$JobId)
     $path = Get-JVJobStatePath -JobId $JobId
-    if (-not (Test-Path -LiteralPath $path)) { return $null }
-    try {
-        return Get-Content -LiteralPath $path -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
-    } catch {
+    if (-not (Test-Path -LiteralPath $path)) {
+        # Log file-missing 404s so we can see in Pode console / Docker logs
+        # whether the bar's vanish is "file genuinely gone" (would mean a
+        # reaper bug or filesystem issue) vs "parse failed" (corruption).
+        Write-PodeHost "Get-JVJobState($JobId): file not found at $path" -ForegroundColor DarkYellow -ErrorAction SilentlyContinue
         return $null
     }
+    # Retry-on-parse-failure: if the first read returns invalid JSON,
+    # sleep briefly and try once more. This catches any lingering
+    # read-during-write window even if rename(2) is supposed to be
+    # atomic — cheap insurance, and avoids the bar dropping on a
+    # transient blip. After 2 attempts give up and return null.
+    $lastErr = $null
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        try {
+            $raw = Get-Content -LiteralPath $path -Raw -Encoding utf8
+            if (-not $raw) {
+                $lastErr = "empty file"
+            } else {
+                return ($raw | ConvertFrom-Json -AsHashtable)
+            }
+        } catch {
+            $lastErr = "$_"
+        }
+        if ($attempt -lt 2) { Start-Sleep -Milliseconds 50 }
+    }
+    Write-PodeHost "Get-JVJobState($JobId): read/parse failed twice — $lastErr" -ForegroundColor DarkYellow -ErrorAction SilentlyContinue
+    return $null
 }
 
 function Test-JVJobCancelled {

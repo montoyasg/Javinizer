@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.11.2] - 2026-04-26
+
+### Changed
+
+- **`Get-JVJobState` now logs why it failed and retries once on
+  parse failure.** v1.11.1 fixed the temp-filename race that was
+  the leading hypothesis for the recurring "bar disappears mid-run
+  with 404" symptom, but the user reported the issue persists.
+  Without server-side visibility into WHY `Get-JVJobState` returns
+  null, we can't tell whether the file is genuinely missing
+  (suggesting a reaper / FS issue) or fails to parse (suggesting a
+  different corruption source we haven't caught yet).
+  - On Test-Path failure → `Write-PodeHost` logs
+    `Get-JVJobState({jobId}): file not found at {path}`. Visible
+    in the Pode console / `docker logs <container>`.
+  - On read-or-parse failure → retries once after 50 ms. If the
+    second attempt also fails, logs
+    `Get-JVJobState({jobId}): read/parse failed twice — {error}`.
+    The 50 ms retry is cheap insurance against any lingering
+    read-during-write window.
+  - Empty-file case is treated as a parse failure (was previously
+    silently returning an empty hashtable).
+
+### Diagnostic ask
+
+Once on v1.11.2, when the bar disappears next, please share:
+- The version badge value (top-left of the header).
+- A `docker logs <container>` excerpt around the time of the
+  vanish — look for `Get-JVJobState(...)` lines.
+- The exact 404 in DevTools Network → Response body.
+
+Those three together will pinpoint whether the issue is "file
+missing", "JSON parse failure", "permission denied", or something
+else entirely.
+
 ## [1.11.1] - 2026-04-26
 
 ### Fixed
