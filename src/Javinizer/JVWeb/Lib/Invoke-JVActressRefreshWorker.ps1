@@ -218,9 +218,19 @@ function Invoke-JVActressRefreshWorker {
                             $s.progress.current = $cur
                             $s.progress.total   = $totC
                             $s.progress.message = "phase B: promoting $($task.Canonical.name)"
-                            $tmp = "$sp.tmp"
-                            [System.IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
-                            Move-Item -LiteralPath $tmp -Destination $sp -Force
+                            # Unique tmp filename per write — parallel runspaces
+                            # racing on a shared "$sp.tmp" produced torn JSON
+                            # via interleaved fds on the same inode, which
+                            # surfaced as transient 404 on /api/jobs/:id.
+                            $tmp = "$sp.$([Guid]::NewGuid().ToString('N')).tmp"
+                            try {
+                                [System.IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
+                                Move-Item -LiteralPath $tmp -Destination $sp -Force
+                            } finally {
+                                if (Test-Path -LiteralPath $tmp) {
+                                    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                                }
+                            }
                         }
                     } catch {}
                 }

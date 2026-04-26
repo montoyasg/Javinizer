@@ -90,10 +90,20 @@ function Save-JVActressDataset {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
 
-    $tmp = "$path.tmp"
+    # Unique tmp filename per save (see Start-JVJob.ps1 Write-JVJobState
+    # for the race-condition rationale). This site is normally serial,
+    # but we use the same convention everywhere so concurrent callers
+    # can't accidentally tear the file.
+    $tmp = "$path.$([Guid]::NewGuid().ToString('N')).tmp"
     $json = $Dataset | ConvertTo-Json -Depth 12
-    [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $tmp -Destination $path -Force
+    try {
+        [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $tmp -Destination $path -Force
+    } finally {
+        if (Test-Path -LiteralPath $tmp) {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
 
     try { Set-PodeState -Name 'actressDataset' -Value $Dataset | Out-Null } catch {}
     return $path

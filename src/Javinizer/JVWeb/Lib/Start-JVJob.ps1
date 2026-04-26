@@ -30,10 +30,23 @@ function Write-JVJobState {
         [Parameter(Mandatory)][string]$StatePath,
         [Parameter(Mandatory)]$State
     )
-    $tmp = "$StatePath.tmp"
+    # Per-write unique temp filename. Two parallel runspaces racing on a
+    # shared "$StatePath.tmp" both call open(O_CREAT|O_TRUNC) on the same
+    # inode, get independent fds, and their writes interleave at offset 0
+    # → torn file → ConvertFrom-Json fails → /api/jobs/:id returns 404 →
+    # bar disappears. Unique names eliminate the inode collision; the
+    # final destination is replaced atomically by Move-Item (rename(2)),
+    # so readers always see one writer's complete payload.
+    $tmp = "$StatePath.$([Guid]::NewGuid().ToString('N')).tmp"
     $json = $State | ConvertTo-Json -Depth 12 -Compress
-    [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $tmp -Destination $StatePath -Force
+    try {
+        [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $tmp -Destination $StatePath -Force
+    } finally {
+        if (Test-Path -LiteralPath $tmp) {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Get-JVJobState {
@@ -125,10 +138,20 @@ function Read-JVActiveJob {
 function Write-JVActiveJob {
     param($State)
     if (-not $global:JVActiveJobStatePath) { return }
-    $tmp = "$($global:JVActiveJobStatePath).tmp"
+    # Unique-tmp pattern (see Write-JVJobState above). Even though this
+    # function is normally called from a single consumer thread, parallel
+    # workers in some flows write directly to the state file and we want
+    # all writers to share the same race-free convention.
+    $tmp = "$($global:JVActiveJobStatePath).$([Guid]::NewGuid().ToString('N')).tmp"
     $json = $State | ConvertTo-Json -Depth 12 -Compress
-    [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $tmp -Destination $global:JVActiveJobStatePath -Force
+    try {
+        [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $tmp -Destination $global:JVActiveJobStatePath -Force
+    } finally {
+        if (Test-Path -LiteralPath $tmp) {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Update-JVJobProgress {

@@ -278,9 +278,19 @@ function Set-JVJellyfinActresses {
                             $s.progress.current = $cur
                             $s.progress.total   = $totalCount
                             $s.progress.message = "skip $($p.Name) (already populated)"
-                            $tmp = "$statePath.tmp"
-                            [System.IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
-                            Move-Item -LiteralPath $tmp -Destination $statePath -Force
+                            # Unique tmp filename — parallel runspaces racing
+                            # on a shared "$statePath.tmp" produced torn JSON
+                            # via interleaved fds on the same inode, which
+                            # surfaced as transient 404 on /api/jobs/:id.
+                            $tmp = "$statePath.$([Guid]::NewGuid().ToString('N')).tmp"
+                            try {
+                                [System.IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
+                                Move-Item -LiteralPath $tmp -Destination $statePath -Force
+                            } finally {
+                                if (Test-Path -LiteralPath $tmp) {
+                                    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                                }
+                            }
                         }
                     } catch {}
                 }
@@ -429,9 +439,17 @@ function Set-JVJellyfinActresses {
                     $s.progress.current = $cur
                     $s.progress.total   = $totalCount
                     $s.progress.message = "updating $($p.Name)"
-                    $tmp = "$statePath.tmp"
-                    [System.IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
-                    Move-Item -LiteralPath $tmp -Destination $statePath -Force
+                    # Unique tmp filename — see early-skip path above for the
+                    # race-condition rationale.
+                    $tmp = "$statePath.$([Guid]::NewGuid().ToString('N')).tmp"
+                    try {
+                        [System.IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
+                        Move-Item -LiteralPath $tmp -Destination $statePath -Force
+                    } finally {
+                        if (Test-Path -LiteralPath $tmp) {
+                            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                        }
+                    }
                 }
             } catch {}
         }

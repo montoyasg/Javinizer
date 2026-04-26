@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.11.1] - 2026-04-26
+
+### Fixed
+
+- **Progress bar genuinely 404'd mid-run despite the v1.8.x / v1.10.2
+  resilience fixes.** The job state file on disk kept getting updated
+  (so the threadjob was alive), but `/api/jobs/:id` occasionally
+  returned a real 404 → bar's catch path correctly cleared
+  `activeJobId` → bar disappeared.
+  - **Root cause:** every state-file writer used a hard-coded shared
+    temp filename `"$path.tmp"`. Two parallel runspaces racing on
+    that filename both call `WriteAllText` → both call
+    `open(O_CREAT|O_TRUNC)` on the same inode → independent fds at
+    offset 0 → bytes interleave → torn JSON. `Move-Item` (atomic
+    `rename(2)`) then promoted the corrupted `.tmp` to `.json`. Pode's
+    GET caught it mid-window, `ConvertFrom-Json` threw,
+    `Get-JVJobState` returned null, route 404'd.
+  - **Fix:** every write site now uses a unique temp filename
+    `"$path.{guid}.tmp"`. Concurrent writers each have their own
+    inode, no interleaving. The destination is replaced atomically
+    by `Move-Item`, so readers always see one writer's complete
+    payload — never torn. Wrapped in try/finally with
+    `Remove-Item -ErrorAction SilentlyContinue` to clean up the
+    unique `.tmp` on the rare Move-Item failure.
+  - **Sites updated:** `Write-JVJobState` and `Write-JVActiveJob` in
+    [Start-JVJob.ps1](src/Javinizer/JVWeb/Lib/Start-JVJob.ps1);
+    Phase B parallel block in
+    [Invoke-JVActressRefreshWorker.ps1](src/Javinizer/JVWeb/Lib/Invoke-JVActressRefreshWorker.ps1);
+    early-skip + per-update parallel sites in
+    [Set-JVJellyfinActresses.ps1](src/Javinizer/Public/Set-JVJellyfinActresses.ps1);
+    `Save-JVActressDataset` in
+    [Get-JVActressDataset.ps1](src/Javinizer/JVWeb/Lib/Get-JVActressDataset.ps1)
+    for consistency.
+  - This explains why the symptom persisted across v1.10.2's no-cache
+    fix (cache wasn't the issue), v1.8.8's status-aware reaper (file
+    wasn't being reaped), and v1.8.2's resilient polling (the 404 was
+    real, polling correctly cleared on confirmed 404). The race
+    frequency correlates with `parallelism` — more racers, more
+    collisions.
+
 ## [1.11.0] - 2026-04-26
 
 ### Added
