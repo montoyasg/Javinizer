@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.7] - 2026-04-26
+
+### Fixed
+
+- **Bottom-left version badge no longer overlaps content.** v1.8.6's
+  badge sat at `left:8, bottom:6` as plain text and visually
+  overlapped the FileBrowser status line in Sort view (which sits
+  at the bottom of the sidebar) and any "Showing N of T" footer in
+  Library view. v1.8.7 wraps it in a small pill with a subtle
+  surface background so it stays readable on top of busy content,
+  and sets `pointer-events: none` so it never blocks clicks on
+  whatever's behind it. Tightened to `left:4, bottom:4` and dropped
+  the font size to 9 px so it occupies a smaller dead-zone.
+- When a frontend↔server version mismatch is detected the pill
+  switches to an orange filled background, gets `pointer-events:
+  auto` (so the hard-refresh tooltip is reachable on hover), and
+  shows `ui v1.8.7 ↛ srv v1.8.8 ⚠` instead of the plain version.
+
 ## [1.8.6] - 2026-04-26
 
 ### Added
