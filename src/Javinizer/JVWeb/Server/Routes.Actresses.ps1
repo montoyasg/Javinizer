@@ -123,6 +123,15 @@ Add-PodeRoute -Method Post -Path '/api/actresses/refresh' -ScriptBlock {
             $useJellyfin = [bool]$settings.'actresses.refresh.usejellyfin'
         }
 
+        # Skip-xcity-sourced toggle. Default OFF. Body wins; else read setting.
+        $skipXcitySourced = $false
+        if ($body.PSObject.Properties.Name -contains 'skipXcitySourced' -or
+            ($body -is [System.Collections.IDictionary] -and $body.Contains('skipXcitySourced'))) {
+            $skipXcitySourced = [bool]$body.skipXcitySourced
+        } elseif ($settings.PSObject.Properties.Name -contains 'actresses.refresh.skipxcitysourced') {
+            $skipXcitySourced = [bool]$settings.'actresses.refresh.skipxcitysourced'
+        }
+
         $arguments = @{
             source              = $source
             names               = $cleanedNames
@@ -130,6 +139,7 @@ Add-PodeRoute -Method Post -Path '/api/actresses/refresh' -ScriptBlock {
             xcityParallelism    = $xcityParallelism
             jellyfinParallelism = $jellyfinParallelism
             useJellyfin         = $useJellyfin
+            skipXcitySourced    = $skipXcitySourced
             parallelism         = $xcityParallelism  # legacy alias for worker
         }
         if ($source -eq 'jellyfin') {

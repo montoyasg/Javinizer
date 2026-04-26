@@ -25,6 +25,7 @@ Add-PodeRoute -Method Get -Path '/api/settings' -ScriptBlock {
             'actresses.refresh.xcity.parallelism'
             'actresses.refresh.jellyfin.parallelism'
             'actresses.refresh.usejellyfin'
+            'actresses.refresh.skipxcitysourced'
             'actresses.sync.parallelism'
         )
 
@@ -71,6 +72,7 @@ Add-PodeRoute -Method Post -Path '/api/settings' -ScriptBlock {
             'actresses.refresh.xcity.parallelism'
             'actresses.refresh.jellyfin.parallelism'
             'actresses.refresh.usejellyfin'
+            'actresses.refresh.skipxcitysourced'
             'actresses.sync.parallelism'
         )
 

@@ -5,7 +5,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 // Compared against /api/version's server version; mismatch means
 // the browser is running cached old app.jsx — a hard-refresh
 // (Cmd+Shift+R) is needed to pick up server-side fixes.
-const APP_JSX_VERSION = '1.9.0';
+const APP_JSX_VERSION = '1.9.1';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -476,6 +476,7 @@ function ActressLibrary({ onJob, addToast }) {
   const [xcityParallel, setXcityParallel] = useState(3);
   const [jellyfinParallel, setJellyfinParallel] = useState(8);
   const [useJellyfin, setUseJellyfin] = useState(true);
+  const [skipXcitySourced, setSkipXcitySourced] = useState(false);
 
   const sentinelRef = useRef(null);
   const requestSeqRef = useRef(0);   // bumps on filter/search change to invalidate in-flight loads
@@ -490,6 +491,7 @@ function ActressLibrary({ onJob, addToast }) {
         if (x) setXcityParallel(parseInt(x) || 3);
         if (srv['actresses.refresh.jellyfin.parallelism']) setJellyfinParallel(parseInt(srv['actresses.refresh.jellyfin.parallelism']) || 8);
         if (typeof srv['actresses.refresh.usejellyfin'] === 'boolean') setUseJellyfin(srv['actresses.refresh.usejellyfin']);
+        if (typeof srv['actresses.refresh.skipxcitysourced'] === 'boolean') setSkipXcitySourced(srv['actresses.refresh.skipxcitysourced']);
       } catch {}
     })();
   }, []);
@@ -556,7 +558,7 @@ function ActressLibrary({ onJob, addToast }) {
     try {
       const res = await api('/api/actresses/refresh', {
         method:'POST',
-        body:{ source:'jellyfin', replaceExisting:false, useJellyfin, xcityParallelism: xcityParallel, jellyfinParallelism: jellyfinParallel },
+        body:{ source:'jellyfin', replaceExisting:false, useJellyfin, skipXcitySourced, xcityParallelism: xcityParallel, jellyfinParallelism: jellyfinParallel },
       });
       if (res.jobId) { onJob?.(res.jobId); addToast?.('Sync from Jellyfin started', 'ok'); }
     } catch (e) { addToast?.('Sync failed: ' + e.message, 'error'); }
@@ -619,6 +621,18 @@ function ActressLibrary({ onJob, addToast }) {
             }}
             style={{accentColor:'var(--accent)'}}/>
           Jellyfin first
+        </label>
+        <label style={{display:'flex', gap:5, alignItems:'center', fontSize:11, color:'var(--text-muted)', userSelect:'none'}} title="When ON, Sync from Jellyfin skips any actress that already has xcity data (xcityId set). Use this to fill in xcity for entries that only have Jellyfin-sourced data without re-hitting xcity for actresses already covered. Saved on change.">
+          <input
+            type="checkbox" checked={skipXcitySourced}
+            onChange={async e => {
+              const v = e.target.checked;
+              setSkipXcitySourced(v);
+              try { await api('/api/settings', { method:'POST', body:{ settings:{ 'actresses.refresh.skipxcitysourced': v }}}); addToast?.('Saved', 'ok'); }
+              catch (err) { addToast?.(`Save failed: ${err.message}`, 'error'); }
+            }}
+            style={{accentColor:'var(--accent)'}}/>
+          Skip xcity-sourced
         </label>
         <label style={{display:'flex', gap:5, alignItems:'center', fontSize:11, color:'var(--text-muted)'}} title="Phase B parallelism — concurrent Jellyfin GETs (local network, can go higher). Saved on blur.">
           <span>JF</span>

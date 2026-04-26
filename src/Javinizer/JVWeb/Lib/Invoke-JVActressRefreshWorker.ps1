@@ -43,6 +43,19 @@ function Invoke-JVActressRefreshWorker {
         $true
     }
 
+    # Skip-xcity-sourced toggle. When ON, the pre-skip phase additionally
+    # excludes any entry that already has $entry.xcityId set — i.e. has been
+    # scraped from xcity at some prior run. Useful for "fill in xcity for
+    # entries that only have Jellyfin data" workflows without re-hitting
+    # xcity for actresses already covered. Default OFF.
+    $skipXcitySourced = if ($ctx.PSObject.Properties.Name -contains 'skipXcitySourced') {
+        [bool]$ctx.skipXcitySourced
+    } elseif ($ctx -is [System.Collections.IDictionary] -and $ctx.Contains('skipXcitySourced')) {
+        [bool]$ctx.skipXcitySourced
+    } else {
+        $false
+    }
+
     if ($source -eq 'jellyfin') {
         Update-JVJobProgress -Message 'fetching Jellyfin person list...'
         $url = "$($ctx.embyUrl.TrimEnd('/'))/emby/Persons/?api_key=$($ctx.embyApiKey)"
@@ -248,9 +261,11 @@ function Invoke-JVActressRefreshWorker {
     }
 
     # Pre-skip phase (sequential, in-memory). Filters out empty names,
-    # already-populated entries, and Phase-B-captured names.
+    # already-populated entries, Phase-B-captured names, and (when
+    # $skipXcitySourced) entries that already have an xcityId.
     $needFetch = New-Object System.Collections.Generic.List[Object]
     $emptyDropped = 0
+    $xcitySkipped = 0
     foreach ($n in $names) {
         $romaji = "$($n.name)".Trim()
         if (-not $romaji) { $stats.skipped++; $emptyDropped++; continue }
@@ -261,12 +276,23 @@ function Invoke-JVActressRefreshWorker {
                 $stats.skipped++
                 continue
             }
+            # Skip-xcity-sourced mode: drop anything already touched by xcity.
+            # Lets the caller target only Jellyfin-only / never-scraped entries
+            # without re-hitting xcity for already-covered actresses.
+            if ($skipXcitySourced -and $existing -and $existing.xcityId) {
+                $stats.skipped++
+                $xcitySkipped++
+                continue
+            }
         }
         $needFetch.Add($n) | Out-Null
     }
 
     if ($emptyDropped -gt 0) {
         Add-JVJobLog "dropped $emptyDropped empty/whitespace name$(if ($emptyDropped -eq 1) {''} else {'s'}) at pre-skip"
+    }
+    if ($xcitySkipped -gt 0) {
+        Add-JVJobLog "skipXcitySourced=true: skipped $xcitySkipped name$(if ($xcitySkipped -eq 1) {''} else {'s'}) already sourced from xcity"
     }
 
     $tot = $needFetch.Count

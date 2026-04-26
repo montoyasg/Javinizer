@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.9.1] - 2026-04-26
+
+### Added
+
+- **"Skip xcity-sourced" toggle in the Library top bar.** New
+  checkbox alongside "Jellyfin first". When ON, Sync from Jellyfin
+  drops any actress whose dataset entry already has `xcityId` set
+  (i.e. has been scraped from xcity at some prior run) from Phase
+  C's `needFetch` list. Lets the user run a sync that targets only
+  Jellyfin-only / never-scraped entries without re-hitting xcity
+  for actresses already covered. Persisted as
+  `actresses.refresh.skipxcitysourced`.
+  - Wired through `POST /api/actresses/refresh` body
+    (`skipXcitySourced: bool`), the route, and the worker's
+    pre-skip phase.
+  - Only applies when `replaceExisting=false`. Refetch missing
+    (which uses `replaceExisting=true`) bypasses pre-skip
+    entirely, so the toggle has no effect there.
+  - Pre-skip emits a job-log line when it kicks in:
+    `skipXcitySourced=true: skipped N names already sourced from xcity`.
+
 ## [1.9.0] - 2026-04-26
 
 ### Changed
