@@ -248,20 +248,26 @@ Add-PodeRoute -Method Get -Path '/api/actresses/:key' -ScriptBlock {
 }
 
 # POST /api/actresses/cleanup — prune dataset entries that match maintenance
-# rules. Body: { rules?: ['empty-name','stub'], dryRun?: bool }.
+# rules. Body: { rules?: ['empty-name','stub','mojibake'], dryRun?: bool }.
 #   - empty-name: entry's name field is null/empty/whitespace
 #   - stub      : no bio AND no primaryUrl AND no xcityId (a placeholder
 #                 stub from the v1.2.0–v1.3.0 era when no-match cases got
 #                 saved as skeleton entries)
+#   - mojibake  : entry's name contains chars that don't appear in
+#                 legitimate Japanese romaji — control chars (\n, \t, etc),
+#                 Latin-1 Supplement (â, Ã, Å, ã — typical UTF-8-as-Latin-1
+#                 mojibake artifacts), or the Unicode replacement char.
+#                 Real macron vowels (ū, ō, ā, ē, ī) are at U+0100+ and are
+#                 NOT matched, so legitimate names like "Yūna Ogura" survive.
 # Returns { removedCount, keptCount, removed: [{ key, name, reason }], dryRun, rules }.
 Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
     try {
         $body = $WebEvent.Data
         $rules = if ($body.rules) { @($body.rules | ForEach-Object { "$_".Trim().ToLowerInvariant() } | Where-Object { $_ }) }
-                 else { @('empty-name', 'stub') }
+                 else { @('empty-name', 'stub', 'mojibake') }
         $dryRun = [bool]$body.dryRun
 
-        $valid = @('empty-name', 'stub')
+        $valid = @('empty-name', 'stub', 'mojibake')
         foreach ($r in $rules) {
             if ($valid -notcontains $r) {
                 Write-PodeJsonResponse -Value @{ error = "unknown rule '$r'; valid: $($valid -join ', ')" } -StatusCode 400
@@ -273,6 +279,10 @@ Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
         $removed = New-Object System.Collections.Generic.List[Object]
         $kept    = [ordered]@{}
 
+        # Pre-compile mojibake detector. C0 controls (no \n, \r, \t allowed),
+        # DEL, the entire Latin-1 Supplement block, and U+FFFD.
+        $mojibakeRegex = [regex]'[ --ÿ�]'
+
         foreach ($k in @($dataset.Keys)) {
             $entry = $dataset[$k]
 
@@ -280,10 +290,13 @@ Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
             $hasBio   = ($null -ne $entry.bio)        -and ("$($entry.bio)".Trim().Length        -gt 0)
             $hasPhoto = ($null -ne $entry.primaryUrl) -and ("$($entry.primaryUrl)".Trim().Length -gt 0)
             $hasXcity = ($null -ne $entry.xcityId)    -and ("$($entry.xcityId)".Trim().Length    -gt 0)
+            $hasMojibake = $hasName -and $mojibakeRegex.IsMatch("$($entry.name)")
 
             $reason = $null
             if (('empty-name' -in $rules) -and -not $hasName) {
                 $reason = 'empty-name'
+            } elseif (('mojibake' -in $rules) -and $hasMojibake) {
+                $reason = 'mojibake'
             } elseif (('stub' -in $rules) -and -not $hasBio -and -not $hasPhoto -and -not $hasXcity) {
                 $reason = 'stub'
             }

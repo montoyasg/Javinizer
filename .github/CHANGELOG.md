@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.9.2] - 2026-04-26
+
+### Added
+
+- **New `mojibake` cleanup rule.** Drops dataset entries whose name
+  contains characters that don't appear in legitimate Japanese
+  romaji — pulls a lot of clearly-broken Jellyfin imports out in
+  one pass. Detected character ranges:
+  - **U+0000–U+001F** C0 control chars (`\n`, `\t`, NUL, etc.)
+  - **U+007F** DEL
+  - **U+0080–U+00FF** Latin-1 Supplement (`â`, `Å`, `ã`, `Ã`, `Â`)
+    — typical UTF-8-misdecoded-as-Latin-1 mojibake from CSV imports
+    or transcription tooling. Real macron vowels (`ū`, `ō`, `ā`,
+    `ē`, `ī`) live at U+0100+, so legitimate names like *Yūna
+    Ogura* / *Ōta Ren* are NOT matched.
+  - **U+FFFD** Unicode replacement char.
+  - Catches the user's reported examples: `MinamiâHaou`,
+    `What's Up!\nOmiya`, `Ruruchaã`, `MÅriazusa`, `ArakitayÅ«ka`,
+    `ShitarayÅ«hi`, etc.
+- **Cleanup checkbox** for the new rule in `ActressCleanupModal`,
+  defaults ON. Dry-run preview shows the matched entries before
+  commit, grouped by reason like the existing rules.
+- Caveat: the Latin-1 Supplement range catches genuine non-Japanese
+  diacritics too (e.g. *Aimée* with `é`). Acceptable given this
+  module's domain is Japanese AV actresses; uncheck the rule for
+  any one-off cleanup if needed.
+
 ## [1.9.1] - 2026-04-26
 
 ### Added

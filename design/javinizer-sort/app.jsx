@@ -5,7 +5,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 // Compared against /api/version's server version; mismatch means
 // the browser is running cached old app.jsx — a hard-refresh
 // (Cmd+Shift+R) is needed to pick up server-side fixes.
-const APP_JSX_VERSION = '1.9.1';
+const APP_JSX_VERSION = '1.9.2';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -363,7 +363,7 @@ function ActressCleanupModal({ onClose, onDone, addToast }) {
   const [preview, setPreview] = useState(null);  // { removedCount, keptCount, removed: [{key,name,reason}] }
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [rules, setRules] = useState({ 'empty-name': true, 'stub': true });
+  const [rules, setRules] = useState({ 'empty-name': true, 'stub': true, 'mojibake': true });
 
   const runDryRun = useCallback(async () => {
     setLoading(true);
@@ -412,6 +412,10 @@ function ActressCleanupModal({ onClose, onDone, addToast }) {
           <label style={{display:'flex',gap:5,alignItems:'center',cursor:'pointer',userSelect:'none'}} title="Drop entries with no bio AND no photo AND no xcity ID — placeholder stubs from older releases">
             <input type="checkbox" checked={rules['stub']} onChange={e=>setRules(s=>({...s,'stub':e.target.checked}))} style={{accentColor:'var(--accent)'}}/>
             Stub entries (no bio/photo/xcityId)
+          </label>
+          <label style={{display:'flex',gap:5,alignItems:'center',cursor:'pointer',userSelect:'none'}} title="Drop entries whose name contains chars that don't appear in legitimate Japanese romaji — control chars (\n, \t), Latin-1 Supplement (â Å ã Ã Â — typical UTF-8-as-Latin-1 mojibake), or the Unicode replacement char. Real macron vowels (ū ō ā ē ī) are at U+0100+ and survive.">
+            <input type="checkbox" checked={rules['mojibake']} onChange={e=>setRules(s=>({...s,'mojibake':e.target.checked}))} style={{accentColor:'var(--accent)'}}/>
+            Mojibake / control chars (â, Å, \n, …)
           </label>
         </div>
 
