@@ -214,13 +214,23 @@ function Invoke-XcityRequest {
                 throw "[Xcity] request failed for [$Uri]: $($_.Exception.Message)"
             }
 
-            # Use Retry-After when present (capped to 600s so we don't hang
-            # indefinitely on a misconfigured server); else fall back to the
-            # exponential schedule.
-            $sleep = if ($retryAfterSec -and $retryAfterSec -le 600) { $retryAfterSec }
+            # Use Retry-After when present (capped to 120s; 10-minute server-
+            # directed sleeps are unreasonable in an interactive batch and
+            # the per-name 90s ceiling above already bounds total damage).
+            # Else fall back to the exponential schedule.
+            $sleep = if ($retryAfterSec) { [Math]::Min($retryAfterSec, 120) }
                      else { $backoffSeconds[[Math]::Min($attempt, $backoffSeconds.Count - 1)] }
-            $reason = if ($retryAfterSec) { "Retry-After=$retryAfterSec" } else { "schedule" }
+            $reason = if ($retryAfterSec) {
+                if ($retryAfterSec -gt 120) { "Retry-After=$retryAfterSec capped" } else { "Retry-After=$retryAfterSec" }
+            } else { "schedule" }
             Write-Verbose "[Xcity] HTTP $statusCode for [$Uri], backing off ${sleep}s ($reason, attempt $($attempt + 1)/$MaxRetries)"
+            # Surface backoff to whatever runspace is driving this call so the
+            # job log can show why progress paused. The buffer is per-runspace
+            # ($script: scope), set by the caller before invoking the scraper.
+            if ($null -ne $script:XcityBackoffLog) {
+                $ts = Get-Date -Format 'HH:mm:ss'
+                $script:XcityBackoffLog.Add("[$ts] xcity backoff ${sleep}s for [$Uri] (attempt $($attempt + 1)/$MaxRetries, $reason, status=$statusCode)") | Out-Null
+            }
             Start-Sleep -Seconds $sleep
         }
     }
@@ -332,8 +342,22 @@ function Find-XcityActressByName {
     )
 
     if ($Fuzzy) {
+        # Per-name absolute wall-time ceiling. With up to 8 romaji variants
+        # and worst-case ~120s Retry-After per attempt, fuzzy could otherwise
+        # eat ~16 min per name. Bail at 90s and let the caller move on.
+        $maxFuzzyMs = 90 * 1000
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $variants = Get-XcityRomajiVariants -Name $Name
+        $tried = 0
         foreach ($cand in $variants) {
+            if ($sw.ElapsedMilliseconds -gt $maxFuzzyMs) {
+                if ($null -ne $script:XcityBackoffLog) {
+                    $ts = Get-Date -Format 'HH:mm:ss'
+                    $script:XcityBackoffLog.Add("[$ts] xcity per-name timeout ($([int]($sw.ElapsedMilliseconds/1000))s) for [$Name]; tried $tried/$($variants.Count) variants, giving up") | Out-Null
+                }
+                break
+            }
+            $tried++
             $hits = Find-XcityActressByName -Name $cand -Session $Session -MaxResults $MaxResults
             if (-not $hits -or $hits.Count -eq 0) { continue }
             $accepted = New-Object System.Collections.Generic.List[Object]

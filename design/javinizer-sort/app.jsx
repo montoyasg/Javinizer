@@ -255,6 +255,13 @@ function JobProgressBar({ jobId, onDone }) {
   const cur = state.progress?.current ?? 0;
   const tot = state.progress?.total ?? 0;
   const pct = tot > 0 ? Math.round((cur / tot) * 100) : 0;
+  const stalledFor = state.progress?.stalledFor ?? 0;
+  // Surface "stalled Xm" once `current` hasn't advanced in over a minute —
+  // typically means a runspace is sleeping in an xcity Retry-After backoff.
+  const showStalled = isRunning && stalledFor > 60;
+  const stalledLabel = showStalled
+    ? (stalledFor >= 60 ? `${Math.round(stalledFor / 60)}m` : `${stalledFor}s`)
+    : '';
   const statusColor =
     state.status === 'done'      ? 'var(--green)' :
     state.status === 'error'     ? 'var(--red)' :
@@ -273,6 +280,7 @@ function JobProgressBar({ jobId, onDone }) {
       </div>
       <span style={{color:'var(--text-muted)', minWidth:50, textAlign:'right'}}>{cur}/{tot}</span>
       <span style={{color:'var(--text-soft)', flex:'0 1 auto', maxWidth:'40%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{state.progress?.message}</span>
+      {showStalled && <span style={{color:'var(--orange, #d97706)', fontSize:10, fontWeight:600, whiteSpace:'nowrap'}} title={`No progress in ${stalledLabel}. The runspace may be sleeping in an xcity backoff — see job log.`}>· stalled {stalledLabel}</span>}
       {isRunning && <button onClick={cancel} style={{...S.btn, fontSize:10, padding:'2px 6px'}}>Cancel</button>}
       {!isRunning && <button onClick={() => onDone && onDone(null)} style={{...S.btn, fontSize:10, padding:'2px 6px'}}>×</button>}
     </div>
@@ -513,7 +521,12 @@ function ActressLibrary({ onJob, addToast }) {
 
   return (
     <div style={{flex:1, overflow:'auto', padding:14, display:'flex', flexDirection:'column', gap:12}}>
-      <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+      {/* Sticky so the search/filter/buttons stay reachable while scrolling
+          the (potentially thousands of) actress cards. The scroll container
+          is the parent at `flex:1; overflow:auto`. Negative top + paddingTop
+          absorbs the parent's `padding:14` so the toolbar pins flush to the
+          top edge once scrolled past. */}
+      <div style={{position:'sticky', top:-14, zIndex:400, background:'var(--surface)', marginTop:-14, marginLeft:-14, marginRight:-14, paddingTop:14, paddingBottom:10, paddingLeft:14, paddingRight:14, borderBottom:'1px solid var(--border)', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
         <input
           value={q} onChange={e=>setQ(e.target.value)}
           placeholder="Search name, JapaneseName, alias…"

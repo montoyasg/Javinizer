@@ -256,32 +256,40 @@ function Invoke-JVActressRefreshWorker {
         throw "Cannot locate Scraper.Xcity.ps1 — refresh cannot start."
     }
 
-    # Shared accumulators for parallel work.
-    $shared    = [hashtable]::Synchronized(@{ counter = 0 })
-    $resultBag = [System.Collections.Concurrent.ConcurrentBag[Object]]::new()
-    $errBag    = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
-    $statePath = $global:JVActiveJobStatePath
+    # Streaming Phase C: each runspace returns its result via the pipeline; a
+    # serial trailing ForEach-Object owns the canonical dataset, merges each
+    # match, calls Update-JVJobProgress, and saves on a debounced cadence
+    # (every 10 saves OR every 30s). Survives kill/cancel mid-run because
+    # work commits to disk continuously instead of only at the end.
     $cancelPath = $global:JVActiveJobCancelPath
+    $errBag     = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
+
+    $batchSize    = 10
+    $batchSeconds = 30
+    $savedSince   = 0
+    $lastSaveAt   = [DateTime]::UtcNow
+    $done         = 0
 
     $needFetch | ForEach-Object -ThrottleLimit $parallelism -Parallel {
-        $n          = $_
-        $sh         = $using:shared
-        $rBag       = $using:resultBag
-        $eBag       = $using:errBag
-        $sp         = $using:statePath
-        $cp         = $using:cancelPath
-        $totCount   = $using:tot
-        $scrPath    = $using:scraperPath
+        $n       = $_
+        $cp      = $using:cancelPath
+        $scrPath = $using:scraperPath
 
-        if ($cp -and (Test-Path -LiteralPath $cp)) { return }
+        $romaji = "$($n.name)".Trim()
+        if ($cp -and (Test-Path -LiteralPath $cp)) {
+            return [pscustomobject]@{ status='cancelled'; name=$romaji; logLines=@() }
+        }
 
         # Each runspace dot-sources the scraper exactly once.
         . $scrPath
         Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
 
-        $romaji = "$($n.name)".Trim()
+        # Per-runspace backoff log buffer; Invoke-XcityRequest appends to this
+        # when honoring Retry-After / falling back to the schedule. Drained
+        # below into the result so the serial consumer can write to job log.
+        $script:XcityBackoffLog = New-Object System.Collections.Generic.List[string]
+
         $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-        $outcome = $null
 
         try {
             # Fuzzy = try romaji variants (macron/double-vowel/token-swap) and
@@ -296,85 +304,98 @@ function Invoke-JVActressRefreshWorker {
                 }
             }
             if (-not $hits -or $hits.Count -eq 0) {
-                # Skip silently — no stub. The job summary will report
-                # `notFound` count; the user can review the log for names.
-                $outcome = @{ status = 'notFound'; name = $romaji }
+                [pscustomobject]@{
+                    status   = 'notFound'
+                    name     = $romaji
+                    logLines = @($script:XcityBackoffLog)
+                }
             } else {
                 $top = $hits[0]
                 $referer = "https://xxx.xcity.jp/idol/?q=$([System.Web.HttpUtility]::UrlEncode($romaji))"
                 $detail = Get-XcityActressDetail -Id $top.Id -Session $session -Referer $referer
 
                 $aliasUnion = (@($top.Aliases) + @($detail.Aliases) + @($n.aliases) | Where-Object { $_ } | Sort-Object -Unique)
-                $outcome = @{
+                [pscustomobject]@{
                     status       = 'matched'
-                    queryName    = $romaji
+                    name         = $romaji
                     japaneseName = $n.japaneseName
                     aliases      = @($aliasUnion)
                     detail       = $detail
+                    logLines     = @($script:XcityBackoffLog)
                 }
             }
         } catch {
-            $eBag.Add("$romaji : $_")
-            $outcome = $null
+            [pscustomobject]@{
+                status   = 'error'
+                name     = $romaji
+                error    = "$_"
+                logLines = @($script:XcityBackoffLog)
+            }
         }
+    } | ForEach-Object {
+        $r = $_
+        $done++
 
-        if ($outcome) { $rBag.Add($outcome) | Out-Null }
-
-        # Bump counter + write progress to the job state file.
-        [System.Threading.Monitor]::Enter($sh)
-        try { $sh.counter = $sh.counter + 1; $cur = $sh.counter } finally { [System.Threading.Monitor]::Exit($sh) }
-        if ($sp -and (Test-Path -LiteralPath $sp)) {
-            try {
-                $s = Get-Content -LiteralPath $sp -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
-                if ($s) {
-                    $s.progress.current = $cur
-                    $s.progress.total   = $totCount
-                    $s.progress.message = "fetching $romaji"
-                    $tmp = "$sp.tmp"
-                    [System.IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
-                    Move-Item -LiteralPath $tmp -Destination $sp -Force
-                }
-            } catch {}
-        }
-    }
-
-    # Sequential merge phase.
-    Update-JVJobProgress -Message "merging $($resultBag.Count) results into dataset..."
-    foreach ($r in $resultBag) {
         try {
-            if ($r.status -eq 'matched') {
-                $entry = [ordered]@{
-                    name         = $r.detail.Name
-                    japaneseName = $r.japaneseName
-                    aliases      = @($r.aliases)
-                    birthdate    = $r.detail.Birthdate
-                    bloodType    = $r.detail.BloodType
-                    birthCity    = $r.detail.BirthCity
-                    height       = $r.detail.Height
-                    measurements = $r.detail.Measurements
-                    hobby        = $r.detail.Hobby
-                    specialSkill = $r.detail.SpecialSkill
-                    bio          = $r.detail.Bio
-                    primaryUrl   = $r.detail.PrimaryUrl
-                    xcityId      = $r.detail.Id
-                    xcityUrl     = $r.detail.Url
-                    lastFetched  = (Get-Date).ToString('o')
+            switch ($r.status) {
+                'matched' {
+                    $entry = [ordered]@{
+                        name         = $r.detail.Name
+                        japaneseName = $r.japaneseName
+                        aliases      = @($r.aliases)
+                        birthdate    = $r.detail.Birthdate
+                        bloodType    = $r.detail.BloodType
+                        birthCity    = $r.detail.BirthCity
+                        height       = $r.detail.Height
+                        measurements = $r.detail.Measurements
+                        hobby        = $r.detail.Hobby
+                        specialSkill = $r.detail.SpecialSkill
+                        bio          = $r.detail.Bio
+                        primaryUrl   = $r.detail.PrimaryUrl
+                        xcityId      = $r.detail.Id
+                        xcityUrl     = $r.detail.Url
+                        lastFetched  = (Get-Date).ToString('o')
+                    }
+                    $existed = Find-JVActress -Name $r.detail.Name -JapaneseName $r.japaneseName -Aliases $r.aliases -Dataset $dataset
+                    Set-JVActressEntry -Dataset $dataset -Entry $entry
+                    if ($existed) { $stats.updated++ } else { $stats.added++ }
+                    $savedSince++
                 }
-                $existed = Find-JVActress -Name $r.detail.Name -JapaneseName $r.japaneseName -Aliases $r.aliases -Dataset $dataset
-                Set-JVActressEntry -Dataset $dataset -Entry $entry
-                if ($existed) { $stats.updated++ } else { $stats.added++ }
-            } elseif ($r.status -eq 'notFound') {
-                # Skip — no entry created. User can re-run later or edit
-                # jvActresses.json by hand if they want a stub.
-                $stats.notFound++
-                Add-JVJobLog "no xcity match: $($r.name)"
+                'notFound' {
+                    $stats.notFound++
+                    Add-JVJobLog "no xcity match: $($r.name)"
+                }
+                'error' {
+                    $errBag.Add("$($r.name) : $($r.error)") | Out-Null
+                }
+                'cancelled' { }
             }
         } catch {
-            $stats.errors += "merge: $_"
+            $stats.errors += "merge $($r.name): $_"
+        }
+
+        # Surface backoff/Retry-After messages from the runspace into the job log.
+        foreach ($line in @($r.logLines)) {
+            if ($line) { Add-JVJobLog $line }
+        }
+
+        Update-JVJobProgress -Current $done -Total $tot -Message "fetching $($r.name)"
+
+        $now = [DateTime]::UtcNow
+        if ($savedSince -ge $batchSize -or ($now - $lastSaveAt).TotalSeconds -ge $batchSeconds) {
+            try {
+                Save-JVActressDataset -Dataset $dataset | Out-Null
+                Add-JVJobLog "checkpoint saved (added=$($stats.added) updated=$($stats.updated))"
+            } catch {
+                Add-JVJobLog "WARN: checkpoint save failed: $_"
+            }
+            $savedSince = 0
+            $lastSaveAt = $now
         }
     }
 
     foreach ($e in $errBag) { $stats.errors += $e }
+    # Final flush so any pending entries since the last checkpoint reach disk.
     Save-JVActressDataset -Dataset $dataset | Out-Null
 
     Add-JVJobLog "done: added=$($stats.added) updated=$($stats.updated) skipped=$($stats.skipped) notFound=$($stats.notFound) errors=$($stats.errors.Count)"

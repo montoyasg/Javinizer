@@ -10,6 +10,19 @@ Add-PodeRoute -Method Get -Path '/api/jobs/:id' -ScriptBlock {
             Write-PodeJsonResponse -Value @{ error = 'not found' } -StatusCode 404
             return
         }
+        # Derive `stalledFor` (seconds since `current` last changed). Lets the
+        # UI show "stuck retrying" without auto-failing the job. Only emit
+        # while the job is actively running.
+        if ($state.status -eq 'running' -and $state.progress.updatedAt) {
+            try {
+                $u = if ($state.progress.updatedAt -is [DateTime]) {
+                    $state.progress.updatedAt.ToUniversalTime()
+                } else {
+                    [DateTime]::Parse([string]$state.progress.updatedAt, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+                }
+                $state.progress.stalledFor = [int]((Get-Date).ToUniversalTime() - $u).TotalSeconds
+            } catch { $state.progress.stalledFor = 0 }
+        }
         Write-PodeJsonResponse -Value $state
     } catch {
         Write-PodeHost "jobs GET error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red

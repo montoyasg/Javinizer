@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.0] - 2026-04-26
+
+### Changed
+
+- **Refetch missing now commits incrementally.** Phase C of the
+  actress-refresh worker no longer batches every result into a
+  `ConcurrentBag` and saves once at the end — instead each runspace
+  streams its result through a serial consumer that merges into the
+  dataset and calls `Save-JVActressDataset` on a debounced cadence
+  (every 10 successful merges OR every 30 seconds, whichever comes
+  first). If the job is killed, cancelled, or hangs, work completed
+  before the most recent checkpoint is preserved on disk; previously
+  all 800+ already-fetched names would be lost. A "checkpoint saved"
+  log line marks each flush so you can see progress hit disk in real
+  time. The progress counter and `Update-JVJobProgress` calls also
+  moved out of the parallel block to the serial consumer, eliminating
+  the cross-runspace race on the job state file.
+
+- **Bounded xcity per-request and per-name wall time.** The
+  `Retry-After` cap dropped from 600 s → **120 s** in
+  `Invoke-XcityRequest` — 10-minute server-directed sleeps were
+  unreasonable in interactive batches. `Find-XcityActressByName
+  -Fuzzy` now wraps its romaji-variant loop in a 90-second stopwatch
+  and abandons remaining variants once it expires (returns `$null`
+  → counted as `notFound`, no exception). Worst-case time on a
+  single bad name dropped from ~88 minutes to ~90 seconds.
+
+### Added
+
+- **xcity backoff messages surface in the job log.** Every
+  `Retry-After` honoring or schedule-driven backoff inside
+  `Invoke-XcityRequest`, plus the per-name fuzzy timeout, now
+  emits a line like
+  `[10:44:17] xcity backoff 60s for [...] (attempt 2/4, Retry-After=60, status=503)`
+  via a per-runspace `$script:XcityBackoffLog` buffer drained by the
+  serial consumer. Previously retries were silent and the user had
+  no way to tell "stuck retrying" from "actually dead".
+
+- **Stall detection in the UI.** `Update-JVJobProgress` writes a
+  `progress.updatedAt` ISO timestamp every time `current` advances.
+  `GET /api/jobs/:id` derives `progress.stalledFor` (seconds since
+  that timestamp) for running jobs. The sticky `JobProgressBar`
+  appends an orange `· stalled Xm` indicator with a tooltip when
+  no progress has happened in over 60 seconds.
+
+- **Sticky Library toolbar.** The search box, filter dropdown,
+  Jellyfin-first toggle, parallelism inputs, and the
+  Refetch / Cleanup / Sync buttons now stay pinned at the top of
+  the Library viewport while you scroll through the actress grid.
+  Uses `position: sticky` against the existing `overflow:auto`
+  scroll container; doesn't conflict with the `JobProgressBar`'s
+  own sticky positioning (different scroll context).
+
 ## [1.7.0] - 2026-04-26
 
 ### Added

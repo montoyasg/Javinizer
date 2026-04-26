@@ -113,7 +113,14 @@ function Update-JVJobProgress {
     param([int]$Current, [int]$Total, [string]$Message)
     $s = Read-JVActiveJob
     if (-not $s) { return }
-    if ($PSBoundParameters.ContainsKey('Current')) { $s.progress.current = $Current }
+    # Touch progress.updatedAt whenever `current` advances so the UI can
+    # distinguish "actively making progress" from "stuck retrying".
+    if ($PSBoundParameters.ContainsKey('Current')) {
+        if ($s.progress.current -ne $Current) {
+            $s.progress.updatedAt = (Get-Date).ToUniversalTime().ToString('o')
+        }
+        $s.progress.current = $Current
+    }
     if ($PSBoundParameters.ContainsKey('Total'))   { $s.progress.total   = $Total }
     if ($PSBoundParameters.ContainsKey('Message')) { $s.progress.message = $Message }
     Write-JVActiveJob $s
@@ -170,7 +177,7 @@ function Start-JVJob {
         status     = 'running'
         startedAt  = (Get-Date).ToString('o')
         finishedAt = $null
-        progress   = [ordered]@{ current = 0; total = 0; message = 'starting' }
+        progress   = [ordered]@{ current = 0; total = 0; message = 'starting'; updatedAt = (Get-Date).ToUniversalTime().ToString('o') }
         log        = @()
         result     = $null
         error      = $null
