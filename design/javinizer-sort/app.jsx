@@ -224,16 +224,25 @@ function Header({ showSettings, setShowSettings, onHelp, onSortAll, onManualScra
 
 function JobProgressBar({ jobId, onDone }) {
   const [state, setState] = useState(null);
+  const [reconnect, setReconnect] = useState(0);  // consecutive failed polls
 
   useEffect(() => {
-    if (!jobId) { setState(null); return; }
+    if (!jobId) { setState(null); setReconnect(0); return; }
     let cancelled = false;
     let timer = null;
+    let consecutiveErrors = 0;
+    // Cap retries so a permanently dead server eventually clears the bar,
+    // but generously enough that a heavily-loaded Pode (the threadjob is
+    // burning CPU and HTTP handlers are sluggish) doesn't drop the bar.
+    // 30 ticks × ~2 s avg = ~60 s of failed polls before we give up.
+    const MAX_RETRIES = 30;
 
     const tick = async () => {
       try {
         const s = await api(`/api/jobs/${jobId}`);
         if (cancelled) return;
+        consecutiveErrors = 0;
+        setReconnect(0);
         setState(s);
         if (s.status === 'running') {
           timer = setTimeout(tick, 750);
@@ -242,15 +251,45 @@ function JobProgressBar({ jobId, onDone }) {
         // visible so the user can read it. The × button calls onDone(null)
         // when they're ready to dismiss.
       } catch (e) {
-        // Job state file missing (server reaped or restarted) — clear.
-        if (!cancelled && onDone) onDone(null);
+        if (cancelled) return;
+        // Distinguish "job genuinely missing" (404) from transient errors
+        // (network blip, Pode handler slow because the threadjob is hot).
+        // 404 is the only signal that should clear the bar; everything else
+        // gets retried with linear backoff.
+        const is404 = /HTTP 404|not found/i.test(e?.message || '');
+        if (is404) {
+          if (onDone) onDone(null);
+          return;
+        }
+        consecutiveErrors++;
+        setReconnect(consecutiveErrors);
+        if (consecutiveErrors >= MAX_RETRIES) {
+          if (onDone) onDone(null);
+          return;
+        }
+        // Linear backoff capped at 5 s so we keep checking when the server
+        // catches its breath.
+        const delay = Math.min(750 + consecutiveErrors * 500, 5000);
+        timer = setTimeout(tick, delay);
       }
     };
     tick();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [jobId]);
 
-  if (!state) return null;
+  if (!state) {
+    // No state yet but we're trying — show a minimal "connecting" sliver so
+    // the user knows we haven't given up.
+    if (jobId && reconnect > 0) {
+      return (
+        <div style={{position:'sticky', top:0, zIndex:500, background:'var(--surface)', borderBottom:`1px solid var(--border)`, padding:'4px 12px', display:'flex', alignItems:'center', gap:10, fontSize:11}}>
+          <span style={{color:'var(--orange, #d97706)', fontWeight:600, textTransform:'uppercase', fontSize:10}}>job · reconnecting</span>
+          <span style={{color:'var(--text-muted)', fontSize:11}}>retrying… (attempt {reconnect})</span>
+        </div>
+      );
+    }
+    return null;
+  }
   const isRunning = state.status === 'running';
   const cur = state.progress?.current ?? 0;
   const tot = state.progress?.total ?? 0;
@@ -281,6 +320,7 @@ function JobProgressBar({ jobId, onDone }) {
       <span style={{color:'var(--text-muted)', minWidth:50, textAlign:'right'}}>{cur}/{tot}</span>
       <span style={{color:'var(--text-soft)', flex:'0 1 auto', maxWidth:'40%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{state.progress?.message}</span>
       {showStalled && <span style={{color:'var(--orange, #d97706)', fontSize:10, fontWeight:600, whiteSpace:'nowrap'}} title={`No progress in ${stalledLabel}. The runspace may be sleeping in an xcity backoff — see job log.`}>· stalled {stalledLabel}</span>}
+      {reconnect > 0 && <span style={{color:'var(--orange, #d97706)', fontSize:10, fontWeight:600, whiteSpace:'nowrap'}} title={`Lost connection to server. Last good poll showed the state below; retrying (${reconnect}/30).`}>· reconnecting {reconnect}</span>}
       {isRunning && <button onClick={cancel} style={{...S.btn, fontSize:10, padding:'2px 6px'}}>Cancel</button>}
       {!isRunning && <button onClick={() => onDone && onDone(null)} style={{...S.btn, fontSize:10, padding:'2px 6px'}}>×</button>}
     </div>

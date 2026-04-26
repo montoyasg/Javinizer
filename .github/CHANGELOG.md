@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.2] - 2026-04-26
+
+### Fixed
+
+- **`JobProgressBar` was disappearing mid-run** any time a single
+  `/api/jobs/:id` poll failed. The catch branch unconditionally
+  called `onDone(null)`, which cleared `activeJobId` and unmounted
+  the bar — even though the threadjob was still running fine. The
+  user observation was "the progress bar just runs and disappears"
+  while server-side state files showed `status: "running"` with
+  hundreds more entries to go. Root cause: under load (Pode HTTP
+  handlers competing with a CPU-busy threadjob, or a brief network
+  blip on the Unraid LAN) a single fetch can fail; the v1.8.0/1.8.1
+  bar treated *any* failure as "job is gone."
+  - The bar now distinguishes **HTTP 404** (job state file genuinely
+    missing — clear) from any other error (transient — retry with
+    linear backoff up to 5 s, give up only after **30 consecutive
+    failed polls** ≈ 60 s).
+  - During retries an orange `· reconnecting N` indicator appears so
+    the user can see the bar is alive and trying. The last successful
+    state stays visible underneath.
+  - If the *very first* poll fails (no state to fall back on), a
+    "job · reconnecting / retrying… (attempt N)" sliver renders
+    instead of nothing.
+
 ## [1.8.1] - 2026-04-26
 
 ### Fixed
