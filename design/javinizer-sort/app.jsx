@@ -5,7 +5,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 // Compared against /api/version's server version; mismatch means
 // the browser is running cached old app.jsx — a hard-refresh
 // (Cmd+Shift+R) is needed to pick up server-side fixes.
-const APP_JSX_VERSION = '1.8.8';
+const APP_JSX_VERSION = '1.8.9';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -195,12 +195,35 @@ function Sk({ w='100%', h=16, style={} }) {
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 
-function Header({ showSettings, setShowSettings, onHelp, onSortAll, onManualScrape, videoCount, view, setView }) {
+function Header({ showSettings, setShowSettings, onHelp, onSortAll, onManualScrape, videoCount, view, setView, version }) {
+  // Version chip rendered immediately before the title. Compares the
+  // baked-in APP_JSX_VERSION against /api/version (server). On mismatch
+  // the chip turns orange + carries a hard-refresh hint in its tooltip.
+  const mismatch = version && version !== APP_JSX_VERSION;
+  const vTip = mismatch
+    ? `Browser is running cached app.jsx v${APP_JSX_VERSION} but server is v${version}. Hard-refresh (Cmd/Ctrl+Shift+R) to pick up the latest UI.`
+    : `Javinizer v${APP_JSX_VERSION}`;
+  const vLabel = mismatch
+    ? `ui v${APP_JSX_VERSION} ↛ srv v${version} ⚠`
+    : `v${APP_JSX_VERSION}`;
   return (
     <header style={{
       background:'var(--surface)', borderBottom:'1px solid var(--border)',
       padding:'0 16px', height:44, display:'flex', alignItems:'center', gap:10, flexShrink:0,
     }}>
+      <span
+        title={vTip}
+        style={{
+          fontFamily:'var(--mono, monospace)', fontSize:10, lineHeight:1,
+          padding:'3px 6px', borderRadius:3,
+          background: mismatch ? 'var(--orange, #d97706)' : 'var(--surface-2)',
+          color: mismatch ? '#fff' : 'var(--text-muted)',
+          fontWeight: mismatch ? 600 : 500,
+          cursor: mismatch ? 'help' : 'default',
+          userSelect:'none',
+          flexShrink:0,
+        }}
+      >{vLabel}</span>
       <span style={{fontSize:15, fontWeight:600, letterSpacing:'-0.01em', flex:1}}>Javinizer {view === 'library' ? 'Library' : 'Sort'}</span>
       <button
         onClick={() => setView(v => v === 'library' ? 'sort' : 'library')}
@@ -2517,7 +2540,7 @@ function App() {
 
   return (
     <div style={{display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg)', color:'var(--text)', fontFamily:'var(--sans)', overflow:'hidden'}}>
-      <Header showSettings={showSettings} setShowSettings={setShowSettings} onHelp={()=>setShowHelp(true)} onSortAll={()=>setShowSortAll(true)} onManualScrape={()=>setShowManualScrape(true)} videoCount={videos.length} view={view} setView={setView} />
+      <Header showSettings={showSettings} setShowSettings={setShowSettings} onHelp={()=>setShowHelp(true)} onSortAll={()=>setShowSortAll(true)} onManualScrape={()=>setShowManualScrape(true)} videoCount={videos.length} view={view} setView={setView} version={version} />
       {activeJobId && <JobProgressBar jobId={activeJobId} onDone={() => setActiveJobId(null)} />}
       {showSettings && view === 'sort' && <SortSettings s={settings} set={setSettings} serverSettings={serverSettings} onSaveDefaults={handleSaveDefaults} onResetToSaved={handleResetToSaved} addToast={add} onJob={setActiveJobId} />}
       <div style={{flex:1, display:'flex', overflow:'hidden'}}>
@@ -2549,48 +2572,6 @@ function App() {
       {showHelp && <HelpModal onClose={()=>setShowHelp(false)} />}
       {showSortAll && <SortAllModal videos={videos} settings={settings} onClose={()=>setShowSortAll(false)} />}
       {showManualScrape && <ManualModal onClose={()=>setShowManualScrape(false)} toast={add} />}
-      {(() => {
-        // Bottom-left version badge.
-        // - APP_JSX_VERSION = frontend code version (baked into this file)
-        // - version (state) = /api/version → running module version
-        // Mismatch = browser running cached pre-upgrade app.jsx → tooltip
-        // tells the user to hard-refresh.
-        // Layout notes: position:fixed at left/bottom 0, but pointer-events:
-        // none so it never blocks clicks on the FileBrowser footer (Sort view)
-        // or the ActressLibrary "Showing N of T" line (Library view) which
-        // both sit at the bottom of the content area. The pill has a subtle
-        // surface backdrop so it stays readable on top of busy content.
-        // When mismatched it gets an outline + pointer-events:auto so the
-        // tooltip is reachable.
-        const mismatch = version && version !== APP_JSX_VERSION;
-        const label = !version
-          ? `v${APP_JSX_VERSION}`
-          : mismatch
-            ? `ui v${APP_JSX_VERSION} ↛ srv v${version}`
-            : `v${APP_JSX_VERSION}`;
-        const tip = mismatch
-          ? `Browser is running cached app.jsx v${APP_JSX_VERSION} but server is v${version}. Hard-refresh (Cmd/Ctrl+Shift+R) to pick up the latest UI.`
-          : `Javinizer v${APP_JSX_VERSION}`;
-        return (
-          <div style={{
-            position:'fixed', left:4, bottom:4, zIndex:1,
-            pointerEvents: mismatch ? 'auto' : 'none',
-            userSelect:'none',
-            fontFamily:'var(--mono, monospace)',
-            fontSize:9, lineHeight:1,
-            padding:'2px 5px',
-            borderRadius:3,
-            background: mismatch ? 'var(--orange, #d97706)' : 'var(--surface, rgba(20,20,24,0.7))',
-            color: mismatch ? '#fff' : 'var(--text-muted)',
-            opacity: mismatch ? 0.95 : 0.4,
-            fontWeight: mismatch ? 600 : 400,
-            cursor: mismatch ? 'help' : 'default',
-            boxShadow: mismatch ? '0 0 0 1px rgba(0,0,0,0.2)' : 'none',
-          }} title={tip}>
-            {label}{mismatch ? ' ⚠' : ''}
-          </div>
-        );
-      })()}
     </div>
   );
 }

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.9] - 2026-04-26
+
+### Changed
+
+- **Version badge moved from bottom-left to top-left**, integrated
+  into the Header to the left of the "Javinizer Library/Sort"
+  title. No longer fixed-positioned, no overlap risk with content
+  below. Same mismatch detection (`ui v1.8.X ↛ srv v1.8.Y ⚠` in
+  orange when frontend is stale).
+
 ## [1.8.8] - 2026-04-26
 
 ### Fixed
