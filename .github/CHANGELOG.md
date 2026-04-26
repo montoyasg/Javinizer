@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.5] - 2026-04-26
+
+### Fixed
+
+Audit follow-up to v1.8.4 — found two more regression-class
+sources of false `· stalled Xm` indicators. Both stem from "what
+counts as a sign of life that should reset the timer."
+
+- **`Update-JVJobProgress` only reset the stalled timer when
+  `Current` advanced.** Message-only calls (`Update-JVJobProgress
+  -Message 'fetching Jellyfin person list…'`) updated the visible
+  message but didn't bump `updatedAt`. So a phase that changes
+  message-but-not-count (the early "fetching persons", "scanning
+  duplicates", "pre-matching", "phase B fetching" lines in both
+  workers) would let the timer go stale. The function now bumps
+  `updatedAt` whenever any of `current`/`total`/`message` actually
+  changes.
+
+- **`Add-JVJobLog` never bumped `updatedAt` at all.** Phases that
+  emit log lines without progress updates — most notably the
+  optional `MergeDuplicates` pass in `Set-JVJellyfinActresses`,
+  which can run dozens of sequential HTTP merges and only writes
+  log lines per merge — would falsely show stalled even though
+  work was actively happening. Log lines are now treated as signs
+  of life: each `Add-JVJobLog` call bumps `updatedAt`.
+
+After these two fixes, the stalled indicator only fires when the
+job state file has had no writes in 60 + seconds. That's the
+correct signal: "nothing has happened recently" ↔ "something might
+be wrong."
+
+### Audit summary
+
+Reviewed every state-file write site across the three flows
+(`Refresh: Phase A/B/C`, `Sync to Jellyfin`):
+
+| Flow phase | Path | Bumps updatedAt? |
+|---|---|---|
+| Refresh A: Jellyfin /Persons/ fetch | `Update-JVJobProgress` (msg-only) | now ✓ (was ✗) |
+| Refresh A: dedup loop | (in-memory, fast) | n/a |
+| Refresh B: parallel block | direct state-file write | ✓ (v1.8.4) |
+| Refresh B: sequential merge | (in-memory, fast) | n/a |
+| Refresh C: pre-skip phase | `Update-JVJobProgress` | ✓ |
+| Refresh C: parallel block | streams to consumer | n/a |
+| Refresh C: serial consumer | `Update-JVJobProgress` | ✓ |
+| Refresh C: log emission | `Add-JVJobLog` | now ✓ (was ✗) |
+| Sync: /Persons/ fetch | `Update-JVJobProgress` (msg-only) | now ✓ (was ✗) |
+| Sync: merge-duplicates pass | `Add-JVJobLog` per merge | now ✓ (was ✗) |
+| Sync: pre-match | `Update-JVJobProgress` (msg-only) | now ✓ (was ✗) |
+| Sync: parallel block | direct state-file write | ✓ (v1.8.4) |
+
+No other untracked write paths found.
+
 ## [1.8.4] - 2026-04-26
 
 ### Fixed

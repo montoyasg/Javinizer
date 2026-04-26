@@ -113,16 +113,27 @@ function Update-JVJobProgress {
     param([int]$Current, [int]$Total, [string]$Message)
     $s = Read-JVActiveJob
     if (-not $s) { return }
-    # Touch progress.updatedAt whenever `current` advances so the UI can
-    # distinguish "actively making progress" from "stuck retrying".
+    # Bump progress.updatedAt whenever ANY visible field changes — message-
+    # only updates (e.g., "fetching Jellyfin person list…") are still signs
+    # of life and should reset the UI's stalled timer. Previously this only
+    # bumped on Current changes, which made slow sequential phases (like a
+    # large Jellyfin /Persons/ fetch) falsely show "stalled Xm".
+    $changed = $false
     if ($PSBoundParameters.ContainsKey('Current')) {
-        if ($s.progress.current -ne $Current) {
-            $s.progress.updatedAt = (Get-Date).ToUniversalTime().ToString('o')
-        }
+        if ($s.progress.current -ne $Current) { $changed = $true }
         $s.progress.current = $Current
     }
-    if ($PSBoundParameters.ContainsKey('Total'))   { $s.progress.total   = $Total }
-    if ($PSBoundParameters.ContainsKey('Message')) { $s.progress.message = $Message }
+    if ($PSBoundParameters.ContainsKey('Total')) {
+        if ($s.progress.total -ne $Total) { $changed = $true }
+        $s.progress.total = $Total
+    }
+    if ($PSBoundParameters.ContainsKey('Message')) {
+        if ($s.progress.message -ne $Message) { $changed = $true }
+        $s.progress.message = $Message
+    }
+    if ($changed) {
+        $s.progress.updatedAt = (Get-Date).ToUniversalTime().ToString('o')
+    }
     Write-JVActiveJob $s
 }
 
@@ -134,6 +145,11 @@ function Add-JVJobLog {
     $log = @($s.log) + @("[$((Get-Date).ToString('HH:mm:ss'))] $Line")
     if ($log.Count -gt 200) { $log = $log[-200..-1] }
     $s.log = $log
+    # Log lines are also signs of life — without this, a phase that emits
+    # log entries but doesn't update progress.current (e.g., the merge-
+    # duplicates pass in Set-JVJellyfinActresses or Phase A's Jellyfin
+    # fetch on a slow server) would falsely show as stalled.
+    $s.progress.updatedAt = (Get-Date).ToUniversalTime().ToString('o')
     Write-JVActiveJob $s
 }
 
