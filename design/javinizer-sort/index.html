@@ -6,13 +6,18 @@
   <base href="/next/">
   <title>Javinizer Sort</title>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=1.8.3">
   <script src="vendor/react.production.min.js"></script>
   <script src="vendor/react-dom.production.min.js"></script>
   <script src="vendor/babel.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
-<script type="text/babel" src="app.jsx"></script>
+<!-- ?v=<version> busts the browser's cached app.jsx on every release.
+     Bump the query to match Javinizer.psd1's ModuleVersion. The Pode
+     no-cache middleware in Start-JVWebServer.ps1 is the long-term
+     fix; this query is belt-and-suspenders for the first load after
+     upgrade. -->
+<script type="text/babel" src="app.jsx?v=1.8.3"></script>
 </body>
 </html>

@@ -122,6 +122,22 @@ function Start-JVWebServer {
         }
         Add-PodeStaticRoute -Path '/' -Source $staticPath -Defaults @('index.html')
 
+        # Force browsers to revalidate /next/ assets every load. Without this,
+        # users would keep getting their cached app.jsx after a module upgrade
+        # (e.g., the v1.8.2 progress-bar-disappear fix wouldn't reach them
+        # until they hard-refreshed). The 304 path keeps actual transfer
+        # cheap when nothing has changed.
+        Add-PodeMiddleware -Name 'NoCacheNext' -ScriptBlock {
+            try {
+                $p = "$($WebEvent.Path)"
+                if ($p -and $p.StartsWith('/next', [System.StringComparison]::OrdinalIgnoreCase)) {
+                    Set-PodeHeader -Name 'Cache-Control' -Value 'no-cache, must-revalidate'
+                    Set-PodeHeader -Name 'Pragma'        -Value 'no-cache'
+                }
+            } catch {}
+            return $true
+        }
+
         Get-ChildItem -Path $routesDir -Filter 'Routes.*.ps1' | ForEach-Object { . $_.FullName }
 
         Write-PodeHost "Javinizer web GUI ready" -ForegroundColor Green

@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.3] - 2026-04-26
+
+### Fixed
+
+- **Browsers were serving stale `app.jsx`** after a module upgrade,
+  so the v1.8.2 progress-bar fix (and earlier UI changes) didn't
+  reach users until they hard-refreshed. Symptom: user reported the
+  bar still disappeared mid-run on v1.8.2 because Babel-in-browser
+  was compiling the old cached blob.
+  - Pode now sends `Cache-Control: no-cache, must-revalidate` for
+    every `/next/*` request (the React UI). Browsers revalidate on
+    each load; ETag/Last-Modified means actual transfer is a 304
+    when nothing has changed.
+  - `index.html` also pins `app.jsx?v=1.8.3` and `style.css?v=1.8.3`
+    as a belt-and-suspenders cache-buster for the first load after
+    upgrade. Bump these on each release alongside the module version
+    (the no-cache middleware is the long-term fix; the query is for
+    the transition).
+
+### One-time action after upgrade
+
+After updating to v1.8.3, **hard-refresh the browser once**
+(Cmd+Shift+R on macOS, Ctrl+Shift+R on Windows/Linux) to bypass
+whatever stale `app.jsx` is currently cached. From this release
+onward, the no-cache middleware handles future upgrades automatically.
+
 ## [1.8.2] - 2026-04-26
 
 ### Fixed
