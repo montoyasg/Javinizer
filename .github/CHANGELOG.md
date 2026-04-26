@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.7.0] - 2026-04-26
+
+### Added
+
+- **Cleanup endpoint + UI** for pruning the local dataset.
+  `POST /api/actresses/cleanup` accepts `rules: ['empty-name', 'stub']`
+  and an optional `dryRun: bool`, returning
+  `{ removedCount, keptCount, removed, dryRun, rules }`. The new
+  Library top-bar **🧹 Cleanup** button opens a modal that runs a
+  dry-run on mount, lists the entries to be removed grouped by
+  reason (with the first 200 names per group), and only commits when
+  the user clicks the red "Remove N" button.
+  - `empty-name` rule: drops entries whose `name` field is null,
+    empty, or whitespace-only.
+  - `stub` rule: drops placeholder entries with no bio AND no
+    primaryUrl AND no xcityId — leftovers from the v1.2.0–v1.3.0
+    stub-on-no-match era.
+- **Infinite scroll for the Actress Library.** Replaces the old
+  Prev / Next pagination with `IntersectionObserver`-driven
+  auto-load. Pages are 100 entries each; the next page kicks off
+  when the bottom sentinel comes within 400px of the viewport.
+  Search / filter changes reset to page 1 and use a sequence
+  counter to invalidate any in-flight loads. Status footer shows
+  `N of T loaded — scroll to load more` while paging, flips to
+  `Showing all N of T` when finished. Card images use
+  `loading="lazy"` so off-screen photos don't hammer the network.
+
+### Changed
+
+- The Library's **↻ Refetch missing on page** button is now **↻
+  Refetch missing** and operates on every entry currently loaded
+  in the view (not just the visible page), since pages no longer
+  exist.
+
 ## [1.6.1] - 2026-04-26
 
 ### Fixed

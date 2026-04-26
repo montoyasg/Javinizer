@@ -237,5 +237,85 @@ Add-PodeRoute -Method Get -Path '/api/actresses/:key' -ScriptBlock {
     }
 }
 
+# POST /api/actresses/cleanup — prune dataset entries that match maintenance
+# rules. Body: { rules?: ['empty-name','stub'], dryRun?: bool }.
+#   - empty-name: entry's name field is null/empty/whitespace
+#   - stub      : no bio AND no primaryUrl AND no xcityId (a placeholder
+#                 stub from the v1.2.0–v1.3.0 era when no-match cases got
+#                 saved as skeleton entries)
+# Returns { removedCount, keptCount, removed: [{ key, name, reason }], dryRun, rules }.
+Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
+    try {
+        $body = $WebEvent.Data
+        $rules = if ($body.rules) { @($body.rules | ForEach-Object { "$_".Trim().ToLowerInvariant() } | Where-Object { $_ }) }
+                 else { @('empty-name', 'stub') }
+        $dryRun = [bool]$body.dryRun
+
+        $valid = @('empty-name', 'stub')
+        foreach ($r in $rules) {
+            if ($valid -notcontains $r) {
+                Write-PodeJsonResponse -Value @{ error = "unknown rule '$r'; valid: $($valid -join ', ')" } -StatusCode 400
+                return
+            }
+        }
+
+        $dataset = Get-JVActressDataset -Force
+        $removed = New-Object System.Collections.Generic.List[Object]
+        $kept    = [ordered]@{}
+
+        foreach ($k in @($dataset.Keys)) {
+            $entry = $dataset[$k]
+
+            $hasName  = ($null -ne $entry.name)       -and ("$($entry.name)".Trim().Length       -gt 0)
+            $hasBio   = ($null -ne $entry.bio)        -and ("$($entry.bio)".Trim().Length        -gt 0)
+            $hasPhoto = ($null -ne $entry.primaryUrl) -and ("$($entry.primaryUrl)".Trim().Length -gt 0)
+            $hasXcity = ($null -ne $entry.xcityId)    -and ("$($entry.xcityId)".Trim().Length    -gt 0)
+
+            $reason = $null
+            if (('empty-name' -in $rules) -and -not $hasName) {
+                $reason = 'empty-name'
+            } elseif (('stub' -in $rules) -and -not $hasBio -and -not $hasPhoto -and -not $hasXcity) {
+                $reason = 'stub'
+            }
+
+            if ($reason) {
+                $removed.Add([ordered]@{ key = "$k"; name = "$($entry.name)"; reason = $reason }) | Out-Null
+            } else {
+                $kept[$k] = $entry
+            }
+        }
+
+        if (-not $dryRun -and $removed.Count -gt 0) {
+            Save-JVActressDataset -Dataset $kept | Out-Null
+        }
+
+        # Hand-build JSON so the `removed` array survives single-element coercion
+        # (PS ConvertTo-Json unwraps 1-elem arrays inside hashtables).
+        $removedJson = switch ($removed.Count) {
+            0       { '[]' }
+            1       { '[' + (ConvertTo-Json -InputObject $removed[0] -Depth 6 -Compress) + ']' }
+            default { ConvertTo-Json -InputObject ([Object[]]$removed) -Depth 6 -Compress }
+        }
+        $rulesJson = if ($rules.Count -le 1) {
+            '[' + (($rules | ForEach-Object { "`"$_`"" }) -join ',') + ']'
+        } else {
+            ConvertTo-Json -InputObject ([Object[]]$rules) -Compress
+        }
+        $body = @"
+{
+  "removedCount": $($removed.Count),
+  "keptCount": $($kept.Count),
+  "removed": $removedJson,
+  "rules": $rulesJson,
+  "dryRun": $($dryRun.ToString().ToLowerInvariant())
+}
+"@
+        Write-PodeTextResponse -Value $body -ContentType 'application/json'
+    } catch {
+        Write-PodeHost "actresses cleanup error: $PSItem`n$($_.ScriptStackTrace)" -ForegroundColor Red
+        Write-PodeJsonResponse -Value @{ error = "$($PSItem.Exception.Message)" } -StatusCode 500
+    }
+}
+
 # Worker function lives in Lib/Invoke-JVActressRefreshWorker.ps1 so it's
 # available in every Pode runspace via Use-PodeScript at startup.

@@ -279,20 +279,128 @@ function JobProgressBar({ jobId, onDone }) {
   );
 }
 
+// ─── Actress Cleanup Modal ────────────────────────────────────────────────────
+
+function ActressCleanupModal({ onClose, onDone, addToast }) {
+  const [preview, setPreview] = useState(null);  // { removedCount, keptCount, removed: [{key,name,reason}] }
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [rules, setRules] = useState({ 'empty-name': true, 'stub': true });
+
+  const runDryRun = useCallback(async () => {
+    setLoading(true);
+    try {
+      const selected = Object.keys(rules).filter(k => rules[k]);
+      const res = await api('/api/actresses/cleanup', { method:'POST', body:{ rules: selected, dryRun: true } });
+      setPreview(res);
+    } catch (e) {
+      addToast?.('Preview failed: ' + e.message, 'error');
+      setPreview({ removedCount:0, keptCount:0, removed:[] });
+    } finally { setLoading(false); }
+  }, [rules, addToast]);
+
+  useEffect(() => { runDryRun(); }, [runDryRun]);
+
+  const commit = async () => {
+    if (!preview || preview.removedCount === 0) return;
+    setBusy(true);
+    try {
+      const selected = Object.keys(rules).filter(k => rules[k]);
+      const res = await api('/api/actresses/cleanup', { method:'POST', body:{ rules: selected, dryRun: false } });
+      addToast?.(`Removed ${res.removedCount} entr${res.removedCount === 1 ? 'y' : 'ies'} (${res.keptCount} kept)`, 'ok');
+      onDone?.();
+    } catch (e) { addToast?.('Cleanup failed: ' + e.message, 'error'); }
+    finally { setBusy(false); }
+  };
+
+  const reasonGroups = useMemo(() => {
+    if (!preview?.removed) return {};
+    return preview.removed.reduce((acc, r) => { (acc[r.reason] ||= []).push(r); return acc; }, {});
+  }, [preview]);
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1500}} onClick={onClose}>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,width:600,maxWidth:'92vw',maxHeight:'85vh',padding:18,display:'flex',flexDirection:'column',gap:12,overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+          <div style={{fontSize:16,fontWeight:600}}>🧹 Cleanup actress dataset</div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:20}}>×</button>
+        </div>
+
+        <div style={{display:'flex',gap:14,flexWrap:'wrap',fontSize:12,flexShrink:0}}>
+          <label style={{display:'flex',gap:5,alignItems:'center',cursor:'pointer',userSelect:'none'}} title="Drop entries whose name field is empty/null/whitespace">
+            <input type="checkbox" checked={rules['empty-name']} onChange={e=>setRules(s=>({...s,'empty-name':e.target.checked}))} style={{accentColor:'var(--accent)'}}/>
+            Empty-name entries
+          </label>
+          <label style={{display:'flex',gap:5,alignItems:'center',cursor:'pointer',userSelect:'none'}} title="Drop entries with no bio AND no photo AND no xcity ID — placeholder stubs from older releases">
+            <input type="checkbox" checked={rules['stub']} onChange={e=>setRules(s=>({...s,'stub':e.target.checked}))} style={{accentColor:'var(--accent)'}}/>
+            Stub entries (no bio/photo/xcityId)
+          </label>
+        </div>
+
+        <div style={{flex:1,overflowY:'auto',background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:6,padding:10}}>
+          {loading ? (
+            <div style={{color:'var(--text-muted)',fontSize:12,textAlign:'center',padding:20}}>Scanning…</div>
+          ) : !preview ? (
+            <div style={{color:'var(--text-muted)',fontSize:12,textAlign:'center',padding:20}}>No data</div>
+          ) : preview.removedCount === 0 ? (
+            <div style={{color:'var(--text-soft)',fontSize:13,textAlign:'center',padding:30}}>
+              ✓ Nothing to clean — all {preview.keptCount} entries are valid.
+            </div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:8,fontSize:11}}>
+              <div style={{color:'var(--text-soft)'}}>Will remove <strong>{preview.removedCount}</strong> entr{preview.removedCount===1?'y':'ies'}, keep <strong>{preview.keptCount}</strong>.</div>
+              {Object.entries(reasonGroups).map(([reason, items]) => (
+                <div key={reason}>
+                  <div style={{fontWeight:600, color:'var(--text-muted)', textTransform:'uppercase', fontSize:10, letterSpacing:'0.06em', marginTop:6, marginBottom:3}}>
+                    {reason} ({items.length})
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column',gap:2,fontFamily:'var(--mono)',fontSize:11}}>
+                    {items.slice(0, 200).map((it, i) => (
+                      <div key={i} style={{color:'var(--text-soft)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                        {it.name ? it.name : <span style={{color:'var(--text-muted)',fontStyle:'italic'}}>(blank, key={it.key})</span>}
+                      </div>
+                    ))}
+                    {items.length > 200 && <div style={{color:'var(--text-muted)',fontStyle:'italic'}}>… +{items.length - 200} more</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid var(--border)',paddingTop:10,flexShrink:0}}>
+          <button onClick={onClose} style={{...S.btn}}>Cancel</button>
+          <button onClick={runDryRun} disabled={loading || busy} style={{...S.btn}}>↻ Re-scan</button>
+          <button onClick={commit} disabled={loading || busy || !preview || preview.removedCount === 0}
+                  style={{background:'var(--red, #c55)', border:'none', color:'#fff', padding:'6px 16px', borderRadius:5, fontSize:12, fontWeight:600, opacity:(loading||busy||!preview||preview?.removedCount===0)?0.5:1, cursor:(loading||busy||!preview||preview?.removedCount===0)?'default':'pointer'}}>
+            {busy ? 'Removing…' : `🗑 Remove ${preview?.removedCount ?? 0}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Actress Library ──────────────────────────────────────────────────────────
 
 function ActressLibrary({ onJob, addToast }) {
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(60);
-  const [data, setData] = useState({ entries: [], total: 0 });
+  const [pageSize] = useState(100);
+  const [entries, setEntries] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [nextPage, setNextPage] = useState(1);          // page to fetch on next batch
   const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);              // no more pages
   const [selected, setSelected] = useState(null);
   const [syncModal, setSyncModal] = useState(false);
+  const [cleanupModal, setCleanupModal] = useState(false);
   const [xcityParallel, setXcityParallel] = useState(3);
   const [jellyfinParallel, setJellyfinParallel] = useState(8);
   const [useJellyfin, setUseJellyfin] = useState(true);
+
+  const sentinelRef = useRef(null);
+  const requestSeqRef = useRef(0);   // bumps on filter/search change to invalidate in-flight loads
 
   // Hydrate refresh-phase settings on mount.
   useEffect(() => {
@@ -308,20 +416,63 @@ function ActressLibrary({ onJob, addToast }) {
     })();
   }, []);
 
-  const reload = useCallback(async () => {
+  // Load one page and append. Caller passes pageNum + a seq token to detect
+  // stale loads (filter/search changed mid-flight).
+  const loadPage = useCallback(async (pageNum, seq) => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      const params = new URLSearchParams({ page: String(pageNum), pageSize: String(pageSize) });
       if (q) params.set('q', q);
       if (filter && filter !== 'all') params.set('filter', filter);
       const res = await api(`/api/actresses?${params}`);
-      setData({ entries: res.entries || [], total: res.total || 0 });
+      // Discard if a newer search/filter has invalidated us.
+      if (seq !== requestSeqRef.current) return;
+      const incoming = res.entries || [];
+      setTotal(res.total || 0);
+      setEntries(prev => pageNum === 1 ? incoming : [...prev, ...incoming]);
+      const totalLoaded = (pageNum === 1 ? 0 : entries.length) + incoming.length;
+      const more = incoming.length > 0 && totalLoaded < (res.total || 0);
+      setDone(!more);
+      setNextPage(pageNum + 1);
     } catch (e) {
-      addToast?.('Failed to load actresses: ' + e.message, 'error');
-    } finally { setLoading(false); }
-  }, [q, filter, page, pageSize, addToast]);
+      if (seq === requestSeqRef.current) addToast?.('Failed to load actresses: ' + e.message, 'error');
+    } finally {
+      if (seq === requestSeqRef.current) setLoading(false);
+    }
+  }, [q, filter, pageSize, addToast, entries.length]);
 
-  useEffect(() => { reload(); }, [reload]);
+  // Reset + reload when search/filter changes.
+  useEffect(() => {
+    const seq = ++requestSeqRef.current;
+    setEntries([]);
+    setNextPage(1);
+    setDone(false);
+    loadPage(1, seq);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, filter]);
+
+  // Sentinel for infinite scroll. When the last row of the grid is near the
+  // viewport, kick off the next page.
+  useEffect(() => {
+    if (!sentinelRef.current || done || loading) return;
+    const obs = new IntersectionObserver((items) => {
+      if (items[0].isIntersecting && !loading && !done) {
+        loadPage(nextPage, requestSeqRef.current);
+      }
+    }, { rootMargin: '400px' });
+    obs.observe(sentinelRef.current);
+    return () => obs.disconnect();
+  }, [done, loading, nextPage, loadPage]);
+
+  // Public hook callers can use to refresh data after an external mutation
+  // (e.g. cleanup commit).
+  const reloadAll = useCallback(() => {
+    const seq = ++requestSeqRef.current;
+    setEntries([]);
+    setNextPage(1);
+    setDone(false);
+    loadPage(1, seq);
+  }, [loadPage]);
 
   const syncFromJellyfin = async () => {
     try {
@@ -334,11 +485,11 @@ function ActressLibrary({ onJob, addToast }) {
   };
 
   const refetchMissing = async () => {
-    const targets = data.entries
+    const targets = entries
       .filter(e => !e.bio || !e.primaryUrl)
       .map(e => ({ name: (e.name || '').trim(), japaneseName: e.japaneseName, aliases: e.aliases }))
       .filter(e => e.name);
-    if (targets.length === 0) { addToast?.('Nothing to refetch on this page', 'info'); return; }
+    if (targets.length === 0) { addToast?.('Nothing missing to refetch in loaded entries', 'info'); return; }
     try {
       const res = await api('/api/actresses/refresh', {
         method:'POST',
@@ -360,18 +511,16 @@ function ActressLibrary({ onJob, addToast }) {
     } catch (e) { addToast?.('Refetch failed: ' + e.message, 'error'); }
   };
 
-  const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
-
   return (
     <div style={{flex:1, overflow:'auto', padding:14, display:'flex', flexDirection:'column', gap:12}}>
       <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
         <input
-          value={q} onChange={e=>{setQ(e.target.value); setPage(1);}}
+          value={q} onChange={e=>setQ(e.target.value)}
           placeholder="Search name, JapaneseName, alias…"
           style={{...S.field, width:280}}
         />
-        <select value={filter} onChange={e=>{setFilter(e.target.value); setPage(1);}} style={{...S.field, width:160}}>
-          <option value="all">All ({data.total})</option>
+        <select value={filter} onChange={e=>setFilter(e.target.value)} style={{...S.field, width:160}}>
+          <option value="all">All ({total})</option>
           <option value="missing-photo">Missing photo</option>
           <option value="missing-bio">Missing bio</option>
         </select>
@@ -412,7 +561,8 @@ function ActressLibrary({ onJob, addToast }) {
             }}
             style={{...S.field, width:50, fontSize:11, padding:'2px 6px'}}/>
         </label>
-        <button onClick={refetchMissing} style={{...S.btn}}>↻ Refetch missing on page</button>
+        <button onClick={refetchMissing} style={{...S.btn}} title="Refetch from xcity for actresses with missing bio/photo currently loaded in this view">↻ Refetch missing</button>
+        <button onClick={()=>setCleanupModal(true)} style={{...S.btn}} title="Remove blank-name and stub entries from the local dataset">🧹 Cleanup</button>
         <button onClick={syncFromJellyfin} style={{...S.btn}} title="Pull Jellyfin's actress list and enrich each from xcity">
           ⇩ Sync from Jellyfin
         </button>
@@ -422,22 +572,19 @@ function ActressLibrary({ onJob, addToast }) {
       </div>
 
       {syncModal && <JellyfinSyncModal onClose={()=>setSyncModal(false)} onJob={(id)=>{ onJob?.(id); setSyncModal(false); }} addToast={addToast} />}
+      {cleanupModal && <ActressCleanupModal onClose={()=>setCleanupModal(false)} onDone={()=>{ setCleanupModal(false); reloadAll(); }} addToast={addToast} />}
 
-      {loading ? (
-        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:10}}>
-          {[...Array(12)].map((_,i)=><Sk key={i} h={220}/>)}
-        </div>
-      ) : data.entries.length === 0 ? (
+      {entries.length === 0 && !loading ? (
         <div style={{color:'var(--text-muted)', fontSize:13, textAlign:'center', padding:40}}>
           No actresses{q ? ` matching "${q}"` : ' yet'}.<br/>
           {q ? '' : 'Click "Sync from Jellyfin" to populate from your library.'}
         </div>
       ) : (
         <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:10}}>
-          {data.entries.map((e, i) => (
+          {entries.map((e, i) => (
             <div key={`${e.name}-${e.xcityId || i}`} onClick={()=>setSelected(e)} style={{background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:6, padding:8, cursor:'pointer', display:'flex', flexDirection:'column', gap:5}}>
               {e.primaryUrl
-                ? <img src={e.primaryUrl} alt={e.name} style={{width:'100%', aspectRatio:'3/4', objectFit:'cover', borderRadius:4, background:'var(--surface)'}} onError={ev=>{ev.target.style.display='none';if(ev.target.nextSibling)ev.target.nextSibling.style.display='flex'}}/>
+                ? <img src={e.primaryUrl} alt={e.name} loading="lazy" style={{width:'100%', aspectRatio:'3/4', objectFit:'cover', borderRadius:4, background:'var(--surface)'}} onError={ev=>{ev.target.style.display='none';if(ev.target.nextSibling)ev.target.nextSibling.style.display='flex'}}/>
                 : null}
               <div style={{width:'100%', aspectRatio:'3/4', background:'var(--surface)', borderRadius:4, display: e.primaryUrl ? 'none' : 'flex', alignItems:'center', justifyContent:'center', fontSize:36}}>👤</div>
               <div style={{fontSize:12, fontWeight:600, lineHeight:1.3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{e.name}</div>
@@ -445,14 +592,23 @@ function ActressLibrary({ onJob, addToast }) {
               {e.birthdate && <div style={{fontSize:10, color:'var(--text-soft)'}}>🎂 {e.birthdate}</div>}
             </div>
           ))}
+          {/* Skeleton placeholders + sentinel for IntersectionObserver-driven infinite scroll */}
+          {loading && [...Array(8)].map((_,i)=><Sk key={`sk-${i}`} h={220}/>)}
         </div>
       )}
 
-      {/* Pagination */}
-      <div style={{display:'flex', justifyContent:'center', alignItems:'center', gap:10, padding:8}}>
-        <button disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))} style={S.btn}>‹ Prev</button>
-        <span style={{fontSize:11, color:'var(--text-muted)'}}>Page {page} / {totalPages} · {data.total} total</span>
-        <button disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)} style={S.btn}>Next ›</button>
+      {/* Sentinel: when this scrolls into view (with rootMargin slack) we load the next page. */}
+      {!done && <div ref={sentinelRef} style={{height:1}} />}
+
+      {/* Status footer */}
+      <div style={{display:'flex', justifyContent:'center', alignItems:'center', gap:10, padding:8, fontSize:11, color:'var(--text-muted)'}}>
+        {entries.length === 0 && !loading
+          ? null
+          : done
+            ? <span>Showing all {entries.length} of {total}</span>
+            : loading
+              ? <span>Loading… {entries.length} of {total} loaded</span>
+              : <span>{entries.length} of {total} loaded — scroll to load more</span>}
       </div>
 
       {selected && (
