@@ -153,20 +153,43 @@ function Invoke-JVActressRefreshWorker {
                 if ($full) {
                     $aliasesAll = @($task.Canonical.aliases) | Where-Object { $_ }
                     $entry = ConvertFrom-JVJellyfinPersonItem -Person $full -AdditionalAliases $aliasesAll
-                    # Inline a Jellyfin image URL when the server has one. URL
-                    # carries the API key — usable from the same network only;
-                    # acceptable since the dataset file is private to the user.
+                    # Inline a Jellyfin image URL when the server has one AND
+                    # the image is actually fetchable. ImageTags.Primary lies
+                    # sometimes — the metadata says an image exists but the
+                    # underlying byte stream is missing/corrupt and Jellyfin
+                    # returns 500 on GET. A cheap HEAD catches this; on
+                    # failure we leave primaryUrl null so Phase C will pull
+                    # a fresh photo from xcity.
                     $hasImg = $false
                     try { $hasImg = ([bool]$task.ImageTags.Primary -or [bool]$task.ImageTags.Thumb) } catch {}
+
+                    $imgOk  = $false
+                    $imgUrl = $null
                     if ($hasImg) {
-                        $entry.primaryUrl = "$($url.TrimEnd('/'))/emby/Items/$($task.PersonId)/Images/Primary?api_key=$key"
+                        $imgUrl = "$($url.TrimEnd('/'))/emby/Items/$($task.PersonId)/Images/Primary?api_key=$key"
+                        try {
+                            $r = Invoke-WebRequest -Uri $imgUrl -Method Head -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+                            $imgOk = ($r.StatusCode -ge 200 -and $r.StatusCode -lt 300)
+                        } catch {
+                            # 500 / connection refused / timeout → leave $imgOk = $false
+                        }
+                    }
+                    if ($imgOk) {
+                        $entry.primaryUrl = $imgUrl
                     }
                     # JapaneseName isn't a Jellyfin concept; carry the caller's
                     # value forward if they passed one.
                     if ($task.Canonical.japaneseName -and -not $entry.japaneseName) {
                         $entry.japaneseName = $task.Canonical.japaneseName
                     }
-                    $bag.Add(@{ Name = "$($task.Canonical.name)"; Entry = $entry; HasBio = [bool]$entry.bio; HasBday = [bool]$entry.birthdate }) | Out-Null
+                    $bag.Add(@{
+                        Name         = "$($task.Canonical.name)"
+                        Entry        = $entry
+                        HasBio       = [bool]$entry.bio
+                        HasBday      = [bool]$entry.birthdate
+                        HasGoodImage = $imgOk
+                        ClaimedImage = $hasImg
+                    }) | Out-Null
                 }
 
                 # Progress
@@ -190,7 +213,12 @@ function Invoke-JVActressRefreshWorker {
                 }
             }
 
-            # Sequential merge: capture entries with bio + birthdate.
+            # Sequential merge: save entries with bio + birthdate. An entry
+            # only "captures" (skips Phase C) when its Jellyfin image was
+            # also confirmed fetchable — otherwise we keep Jellyfin's bio/
+            # birthdate but route it to Phase C so xcity can supply a real
+            # photo (and any richer fields it has).
+            $brokenImage = 0
             foreach ($r in $promotedBag) {
                 if (-not ($r.HasBio -and $r.HasBday)) { continue }
                 $entry = $r.Entry
@@ -203,10 +231,19 @@ function Invoke-JVActressRefreshWorker {
                 Set-JVActressEntry -Dataset $dataset -Entry $entry
                 if ($existed) { $stats.updated++ } else { $stats.added++ }
                 $stats.promoted++
-                [void]$preCaptured.Add($r.Name)
+
+                if ($r.HasGoodImage) {
+                    [void]$preCaptured.Add($r.Name)
+                } else {
+                    # Only count as "broken" when Jellyfin claimed the image
+                    # existed but HEAD failed; entries with no image at all
+                    # were always going to need xcity, that's not new.
+                    if ($r.ClaimedImage) { $brokenImage++ }
+                }
             }
             Save-JVActressDataset -Dataset $dataset | Out-Null
-            Add-JVJobLog "phase B done: promoted=$($stats.promoted) (will skip xcity for these); $($promotedBag.Count - $stats.promoted) had partial Jellyfin metadata and need xcity"
+            $partialMeta = $promotedBag.Count - $stats.promoted
+            Add-JVJobLog "phase B done: promoted=$($stats.promoted) (will skip xcity for these); $partialMeta had partial Jellyfin metadata and need xcity; $brokenImage had broken Jellyfin images → routed to xcity"
         }
     }
 

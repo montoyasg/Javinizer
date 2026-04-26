@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.9.0] - 2026-04-26
+
+### Changed
+
+- **Phase B (Jellyfin promotion) now validates each actress's image
+  before assigning it to `primaryUrl`.** Jellyfin's `ImageTags.Primary`
+  flag isn't always trustworthy: the metadata says an image exists,
+  but the underlying byte stream is missing/corrupt and Jellyfin
+  returns HTTP 500 on the actual GET. Phase B used to save the
+  broken URL anyway and mark the entry "captured" (skipping Phase
+  C), so the Library showed a permanent placeholder for those
+  actresses.
+  - Phase B now does a 5-second HEAD against the Jellyfin image URL
+    inside the parallel block. If HEAD returns 2xx, behavior is
+    unchanged: `primaryUrl` is set to the Jellyfin URL and the
+    entry is captured.
+  - If HEAD returns non-2xx (or times out), `primaryUrl` is left
+    null AND the entry is *not* added to `$preCaptured` — so the
+    pre-skip phase routes it to Phase C, which fetches a fresh
+    image (and any richer fields) from xcity.
+  - Bio + birthdate from Jellyfin are still saved either way, so
+    the user keeps that data even if xcity doesn't know the actress.
+  - Phase B's done-line now reports a third bucket alongside the
+    existing `promoted` and `partial Jellyfin metadata` counts:
+    `N had broken Jellyfin images → routed to xcity`.
+- Cost: ~10–30 ms HEAD per actress at default `jellyfinParallelism=8`,
+  adds ~10–20 s to Phase B on a 4665-person library. Phase C grows
+  by however many entries had broken images.
+
 ## [1.8.9] - 2026-04-26
 
 ### Changed
