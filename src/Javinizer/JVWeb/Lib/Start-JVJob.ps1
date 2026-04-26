@@ -62,12 +62,35 @@ function Request-JVJobCancel {
 
 function Remove-JVOldJobs {
     [CmdletBinding()]
-    param([int]$KeepLastHours = 1)
+    param([int]$KeepLastHours = 24)
+    # Reap stale job state files when starting a new job. Two safeguards:
+    #
+    # 1. Status check trumps mtime. Even if a file's LastWriteTime looks
+    #    old, if its `status` is still 'running' we DO NOT delete it. A
+    #    long sequential phase (e.g., Phase B at parallelism=1 against
+    #    a 4000-actress library) can write ~once per second; any pause
+    #    longer than the TTL would otherwise reap a live job. The bug
+    #    that prompted this safeguard: user's GET /api/jobs/{id} began
+    #    returning 404 on a running refresh job, and the bar disappeared.
+    #
+    # 2. TTL bumped from 1h to 24h. The original 1h was reasonable when
+    #    jobs took seconds, but post-v1.8.x flows (Phase B + Phase C
+    #    sequential walks of large libraries) routinely exceed an hour.
     $cutoff = (Get-Date).AddHours(-$KeepLastHours)
     Get-ChildItem -Path (Get-JVJobsDir) -Filter '*.json' -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -lt $cutoff } |
         ForEach-Object {
             $base = $_.BaseName
+            $isRunning = $false
+            try {
+                $s = Get-Content -LiteralPath $_.FullName -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+                if ($s -and "$($s.status)" -eq 'running') { $isRunning = $true }
+            } catch {}
+            if ($isRunning) {
+                Write-PodeHost "skipping reap of $base.json — status=running" -ForegroundColor Yellow -ErrorAction SilentlyContinue
+                return
+            }
+            Write-PodeHost "reaping stale job $base (status=$(if ($s) { $s.status } else { 'unknown' }), age $([int]((Get-Date) - $_.LastWriteTime).TotalHours)h)" -ForegroundColor DarkGray -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
             $cancelPath = Get-JVJobCancelPath -JobId $base
             if (Test-Path -LiteralPath $cancelPath) {

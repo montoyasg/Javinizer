@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.8] - 2026-04-26
+
+### Fixed
+
+- **`Remove-JVOldJobs` could reap a still-running job's state file.**
+  Root cause for "the progress bar disappears mid-run on long jobs":
+  the reaper was filtering only on `LastWriteTime < (now - 1 h)` —
+  if a job (e.g., refresh Phase B against a 4665-actress library at
+  `parallelism=1`, runtime ~70 minutes) ever paused state-writing
+  longer than the TTL, and *another* job was started in that
+  window, the reaper would delete the still-active job's
+  `~/.javinizer/jobs/{id}.json`. The bar's polling then got 404,
+  cleared the bar (correct response to a missing file), and the
+  user saw the bar vanish on a job that was actually still alive
+  on the server.
+  - Reaper now reads each candidate file and **never deletes one
+    whose `status` is `running`**, regardless of mtime. Status
+    trumps timestamp.
+  - Default TTL bumped from **1 h → 24 h**. The original 1 h fit
+    the pre-v1.8.x days when jobs ran in seconds; modern Phase B/C
+    flows on big libraries routinely take longer than that.
+  - Reap decisions are now logged to the Pode console (`reaping
+    stale job XXX (status=done, age 27 h)` or `skipping reap of
+    XXX.json — status=running`) so future "where did my file go?"
+    diagnostics are one log line away.
+
 ## [1.8.7] - 2026-04-26
 
 ### Fixed
