@@ -325,19 +325,36 @@ function Set-JVJellyfinActresses {
                         } catch {
                             $primaryErr = "$_"
                             if ($entry.xcityId -and $scrPath -and (Test-Path -LiteralPath $scrPath)) {
-                                try {
-                                    . $scrPath
-                                    $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-                                    $detail = Get-XcityActressDetail -Id "$($entry.xcityId)" -Session $session
-                                    $altUrl = $detail.PrimaryUrl
-                                    if ($altUrl -and $altUrl -ne $entry.primaryUrl) {
-                                        $bytes = (Invoke-WebRequest -Method Get -Uri $altUrl -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop).Content
-                                        $usedFallback = $true
-                                    } else {
-                                        $errs.Add("photo $($p.Name): $primaryErr; xcity returned same/empty URL [$($entry.xcityId)]")
+                                # Retry the xcity fallback up to 2× for transient
+                                # "Network is unreachable" / connection-refused
+                                # blips that affect a single TCP establishment
+                                # but recover within a second. Once we get a URL
+                                # different from the stored one and a download
+                                # succeeds, break out. If xcity returns the same
+                                # URL, retrying won't help — bail immediately.
+                                $fallbackErr = $null
+                                . $scrPath
+                                for ($attempt = 1; $attempt -le 2; $attempt++) {
+                                    try {
+                                        $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+                                        $detail = Get-XcityActressDetail -Id "$($entry.xcityId)" -Session $session
+                                        $altUrl = $detail.PrimaryUrl
+                                        if ($altUrl -and $altUrl -ne $entry.primaryUrl) {
+                                            $bytes = (Invoke-WebRequest -Method Get -Uri $altUrl -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop).Content
+                                            $usedFallback = $true
+                                            $fallbackErr = $null
+                                            break
+                                        } else {
+                                            $fallbackErr = "xcity returned same/empty URL [$($entry.xcityId)]"
+                                            break  # not transient; retry won't help
+                                        }
+                                    } catch {
+                                        $fallbackErr = "$_"
+                                        if ($attempt -lt 2) { Start-Sleep -Milliseconds 500 }
                                     }
-                                } catch {
-                                    $errs.Add("photo $($p.Name): $primaryErr; xcity fallback also failed: $_")
+                                }
+                                if (-not $bytes -and $fallbackErr) {
+                                    $errs.Add("photo $($p.Name): $primaryErr; xcity fallback also failed: $fallbackErr")
                                 }
                             } else {
                                 $errs.Add("photo $($p.Name): $primaryErr")
@@ -365,27 +382,65 @@ function Set-JVJellyfinActresses {
             }
 
             # Metadata round-trip
+            #
+            # Pre-v1.11.3 this whole block was wrapped in one try/catch. If
+            # ANY field assignment threw (e.g. "$full.Overview = ..." on a
+            # Jellyfin response that doesn't have the Overview property —
+            # PowerShell can't set non-existent properties on a sealed
+            # PSCustomObject), the catch fired, $changed stayed false, and
+            # the POST never ran — rolling back any earlier successful
+            # field updates that lived only in the in-memory $full.
+            #
+            # v1.11.3 splits this into per-field try/catch blocks, each
+            # using the Add-Member fallback when the property doesn't
+            # exist. One field's failure no longer poisons the others, and
+            # the POST fires with whatever fields succeeded.
             $needMeta = (('Bio' -in $fields -and $entry.bio) -or
                          ('Birthdate' -in $fields -and $entry.birthdate) -or
                          ('Aliases' -in $fields -and $entry.aliases -and $entry.aliases.Count -gt 0))
             if ($needMeta -and $userId) {
+                $full = $null
                 try {
                     $full = Invoke-RestMethod -Method Get -Uri "$base/Users/$userId/Items/$($p.Id)$apiSuffix" -TimeoutSec 15 -ErrorAction Stop
+                } catch {
+                    $errs.Add("meta GET $($p.Name): $_")
+                }
+
+                if ($full) {
                     $changed = $false
 
+                    # Helper: assign a property by name, using Add-Member when
+                    # the target object doesn't already expose it. Avoids the
+                    # "property X cannot be found on this object" error.
+                    $setProp = {
+                        param($Obj, $Name, $Value)
+                        if ($Obj.PSObject.Properties.Name -contains $Name) {
+                            $Obj.$Name = $Value
+                        } else {
+                            Add-Member -InputObject $Obj -NotePropertyName $Name -NotePropertyValue $Value -Force
+                        }
+                    }
+
                     if ('Bio' -in $fields -and $entry.bio -and ($replace -or -not $full.Overview)) {
-                        $full.Overview = $entry.bio
-                        $changed = $true
-                        _bumpField $sh 'bio'
+                        try {
+                            & $setProp $full 'Overview' $entry.bio
+                            $changed = $true
+                            _bumpField $sh 'bio'
+                        } catch {
+                            $errs.Add("meta bio $($p.Name): $_")
+                        }
                     }
 
                     if ('Birthdate' -in $fields -and $entry.birthdate) {
                         $bday = _xcityBday $entry.birthdate
                         if ($bday -and ($replace -or -not $full.PremiereDate)) {
-                            if ($full.PSObject.Properties.Name -contains 'PremiereDate') { $full.PremiereDate = $bday }
-                            else { Add-Member -InputObject $full -NotePropertyName PremiereDate -NotePropertyValue $bday -Force }
-                            $changed = $true
-                            _bumpField $sh 'birthdate'
+                            try {
+                                & $setProp $full 'PremiereDate' $bday
+                                $changed = $true
+                                _bumpField $sh 'birthdate'
+                            } catch {
+                                $errs.Add("meta birthdate $($p.Name): $_")
+                            }
                         }
                     }
 
@@ -398,9 +453,14 @@ function Set-JVJellyfinActresses {
                         $existing = @()
                         try { $existing = @($full.$aliasField) | Where-Object { $_ } } catch {}
                         if ($replace -or $existing.Count -eq 0) {
-                            $full.$aliasField = @($entry.aliases | Where-Object { $_ -ne $entry.name })
-                            $changed = $true
-                            _bumpField $sh 'aliases'
+                            try {
+                                $cleanAliases = @($entry.aliases | Where-Object { $_ -ne $entry.name })
+                                & $setProp $full $aliasField $cleanAliases
+                                $changed = $true
+                                _bumpField $sh 'aliases'
+                            } catch {
+                                $errs.Add("meta aliases $($p.Name): $_")
+                            }
                         }
                     }
 
@@ -408,13 +468,15 @@ function Set-JVJellyfinActresses {
                         if ($dry) {
                             $touched = $true
                         } else {
-                            $body = $full | ConvertTo-Json -Depth 32 -Compress
-                            Invoke-RestMethod -Method Post -Uri "$base/Items/$($p.Id)$apiSuffix" -Body $body -ContentType 'application/json' -TimeoutSec 30 -ErrorAction Stop | Out-Null
-                            $touched = $true
+                            try {
+                                $body = $full | ConvertTo-Json -Depth 32 -Compress
+                                Invoke-RestMethod -Method Post -Uri "$base/Items/$($p.Id)$apiSuffix" -Body $body -ContentType 'application/json' -TimeoutSec 30 -ErrorAction Stop | Out-Null
+                                $touched = $true
+                            } catch {
+                                $errs.Add("meta POST $($p.Name): $_")
+                            }
                         }
                     }
-                } catch {
-                    $errs.Add("meta $($p.Name): $_")
                 }
             }
         } catch {

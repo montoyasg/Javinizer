@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.11.3] - 2026-04-26
+
+### Fixed
+
+- **Sync to Jellyfin: `aliases` updates were always failing.** User
+  reported `fieldsUpdated.aliases = 0` despite a 4679-actress sync.
+  Root cause: when Jellyfin's `GET /Items/{personId}` returns a
+  payload that doesn't include `AlternateNames` as a property,
+  PowerShell can't set a property that doesn't exist on a sealed
+  `PSCustomObject` — `$full.AlternateNames = ...` throws
+  `"The property 'AlternateNames' cannot be found on this object"`.
+  The `Birthdate` path handled this with `Add-Member`, but Bio and
+  Aliases didn't. The same root cause produced ~600+ `meta X:
+  Exception setting "Overview"` errors in the same job log.
+  - All three field assignments (Bio, Birthdate, Aliases) now go
+    through a single `$setProp` helper that uses `Add-Member` when
+    the property is missing. Mirrors the pattern Birthdate already
+    used.
+- **One field's failure no longer rolls back the others.** The
+  whole metadata round-trip used to be wrapped in one try/catch —
+  if Aliases threw, the catch fired before the POST ran, so any
+  earlier successful Bio/Birthdate updates that lived only in the
+  in-memory `$full` got rolled back. v1.11.3 splits the meta block
+  into per-field try/catch + a separate try/catch around the POST.
+  Each field is independent.
+- **xcity photo fallback now retries up to 2× on transient
+  failures.** Previously a single `Network is unreachable` blip
+  during the xcity fallback meant the photo upload was abandoned.
+  Most of those blips are transient (TCP RST or DNS hiccup that
+  recovers within a second), so a single retry catches a
+  meaningful fraction. Bails immediately when xcity returns the
+  same URL as the stored one (retrying with the same URL would
+  always fail again).
+
+### Expected impact
+
+Re-running the same 4679-actress sync that produced
+`fieldsUpdated.aliases = 0` should now produce hundreds of alias
+updates and significantly fewer `meta X: Exception setting ...`
+errors. Photo `photoRefetched` count should also rise as the retry
+catches transient network blips.
+
 ## [1.11.2] - 2026-04-26
 
 ### Changed
