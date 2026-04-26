@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.10.3] - 2026-04-26
+
+### Fixed
+
+- **In-string duplicate-alias corruption now detected and
+  collapsed.** v1.10.1 dedup'd aliases at the array level
+  (`["X", "X"]` → `["X"]`) but missed the case where a *single*
+  alias entry contained the same name concatenated multiple
+  times without separators (`["XX"]` or `["XXXX...XXX"]` for
+  hundreds of copies). User reported their cleaned dataset still
+  had `aliases: ["Yamagishi AikaYamagishi Aika"]` after running
+  v1.10.1's dedup — the array had only one element so dedup
+  considered it unique.
+  - Cleanup's dedup-aliases pass now runs each alias through a
+    period-detection helper before the array dedup. If a string
+    is a perfect repeat of a shorter substring (e.g.
+    `"Yamagishi AikaYamagishi Aika"` is `"Yamagishi Aika"` × 2,
+    or 2800 chars of a 14-char unit × 200), the helper returns
+    the shortest repeating unit. Then the regular array dedup
+    folds duplicates as before.
+  - Algorithm: for each divisor `p` of the string length, check
+    whether the first `p` chars repeat `n/p` times to fill the
+    string. Returns the shortest match. Behavioral test covers
+    the user's exact case + 200×, plus negative cases (real
+    short names like `"Yamagishi Aika"` are returned unchanged).
+  - Response gains `aliasRepaired` field counting how many
+    individual alias strings had their internal repeats
+    collapsed. Surfaced in the cleanup modal preview alongside
+    the existing duplicate-count.
+
 ## [1.10.2] - 2026-04-26
 
 ### Fixed

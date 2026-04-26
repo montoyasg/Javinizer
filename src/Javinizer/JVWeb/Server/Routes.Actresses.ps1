@@ -313,12 +313,44 @@ Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
             }
         }
 
-        # Dedup aliases on kept entries. Tracks how many entries had dupes,
-        # how many duplicate alias copies were eliminated, and the worst-case
-        # accumulation count seen on any single entry — useful to gauge the
-        # scale of corruption being repaired.
+        # Detect "periodic" alias strings — a single alias entry that is
+        # actually the same shorter substring repeated N times with no
+        # separator (e.g. "Yamagishi AikaYamagishi Aika" → "Yamagishi Aika").
+        # This shape comes from older releases that pushed AlternateNames
+        # back to Jellyfin as a concatenated string instead of an array;
+        # subsequent reads round-tripped it as a single ever-growing alias.
+        # Returns the shortest repeating unit when one exists, else the
+        # original string unchanged.
+        $resolveAliasRepeat = {
+            param([string]$Alias)
+            if (-not $Alias) { return $Alias }
+            $n = $Alias.Length
+            if ($n -lt 2) { return $Alias }
+            for ($p = 1; $p -le [int]($n / 2); $p++) {
+                if ($n % $p -ne 0) { continue }
+                $unit = $Alias.Substring(0, $p)
+                $reps = $n / $p
+                $ok = $true
+                for ($i = 1; $i -lt $reps; $i++) {
+                    if ($Alias.Substring($i * $p, $p) -cne $unit) { $ok = $false; break }
+                }
+                if ($ok) { return $unit }
+            }
+            return $Alias
+        }
+
+        # Dedup aliases on kept entries. Two passes per entry:
+        #   1. Collapse any alias that is a repeating string into its base
+        #      unit (handles the v1.10.0-era concatenated-string corruption).
+        #   2. Trim, drop self-references to the canonical name, and dedup
+        #      case-insensitively.
+        # Stats: how many entries had any change, how many surplus alias
+        # copies were eliminated (array-level), how many alias strings had
+        # internal repeats collapsed (string-level), and the worst-case
+        # before-count across all entries.
         $aliasFixed      = 0
         $aliasDuplicates = 0
+        $aliasRepaired   = 0
         $aliasMaxBefore  = 0
         if ($dedupAliases) {
             $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
@@ -333,16 +365,20 @@ Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
                 if ($canonicalName) { [void]$seen.Add($canonicalName) }
 
                 $cleaned = New-Object System.Collections.Generic.List[string]
+                $entryRepaired = 0
                 foreach ($a in $rawAliases) {
                     $t = "$a".Trim()
                     if (-not $t) { continue }
-                    if ($seen.Add($t)) { $cleaned.Add($t) | Out-Null }
+                    $resolved = & $resolveAliasRepeat $t
+                    if ($resolved -cne $t) { $entryRepaired++ }
+                    if ($seen.Add($resolved)) { $cleaned.Add($resolved) | Out-Null }
                 }
 
-                if ($cleaned.Count -ne $beforeCount) {
+                if ($cleaned.Count -ne $beforeCount -or $entryRepaired -gt 0) {
                     $entry.aliases = @($cleaned)
                     $aliasFixed++
                     $aliasDuplicates += ($beforeCount - $cleaned.Count)
+                    $aliasRepaired += $entryRepaired
                     if ($beforeCount -gt $aliasMaxBefore) { $aliasMaxBefore = $beforeCount }
                 }
             }
@@ -373,6 +409,7 @@ Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
   "dedupAliases": $($dedupAliases.ToString().ToLowerInvariant()),
   "aliasFixedEntries": $aliasFixed,
   "aliasDuplicatesRemoved": $aliasDuplicates,
+  "aliasRepaired": $aliasRepaired,
   "aliasMaxBefore": $aliasMaxBefore,
   "dryRun": $($dryRun.ToString().ToLowerInvariant())
 }

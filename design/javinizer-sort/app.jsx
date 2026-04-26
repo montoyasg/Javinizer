@@ -5,7 +5,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 // Compared against /api/version's server version; mismatch means
 // the browser is running cached old app.jsx — a hard-refresh
 // (Cmd+Shift+R) is needed to pick up server-side fixes.
-const APP_JSX_VERSION = '1.10.2';
+const APP_JSX_VERSION = '1.10.3';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -428,7 +428,7 @@ function ActressCleanupModal({ onClose, onDone, addToast }) {
             <input type="checkbox" checked={rules['mojibake']} onChange={e=>setRules(s=>({...s,'mojibake':e.target.checked}))} style={{accentColor:'var(--accent)'}}/>
             Mojibake / control chars (â, Å, \n, …)
           </label>
-          <label style={{display:'flex',gap:5,alignItems:'center',cursor:'pointer',userSelect:'none'}} title="Walk every kept entry's aliases array, dedup case-insensitively, trim whitespace, and drop any alias matching the canonical name. Older releases didn't dedup aggressively enough and let the same alias accumulate hundreds of times. This is a one-shot fix; the merge function is now stricter so it won't re-accumulate.">
+          <label style={{display:'flex',gap:5,alignItems:'center',cursor:'pointer',userSelect:'none'}} title="Walk every kept entry's aliases array, collapse single-string entries that are a substring repeated N times (e.g. 'Yamagishi AikaYamagishi Aika' → 'Yamagishi Aika'), then dedup case-insensitively, trim whitespace, and drop aliases matching the canonical name. The merge function in v1.10.1+ is also stricter so corruption won't re-accumulate.">
             <input type="checkbox" checked={dedupAliases} onChange={e=>setDedupAliases(e.target.checked)} style={{accentColor:'var(--accent)'}}/>
             Dedup duplicate aliases
           </label>
@@ -450,7 +450,7 @@ function ActressCleanupModal({ onClose, onDone, addToast }) {
                 {(preview.aliasFixedEntries ?? 0) > 0 && (
                   <span>
                     {preview.removedCount > 0 ? ' Also dedup ' : 'Will dedup '}
-                    aliases on <strong>{preview.aliasFixedEntries}</strong> entr{preview.aliasFixedEntries===1?'y':'ies'} ({preview.aliasDuplicatesRemoved} duplicate cop{preview.aliasDuplicatesRemoved===1?'y':'ies'} total{preview.aliasMaxBefore > 1 ? `, worst entry had ${preview.aliasMaxBefore} aliases` : ''}).
+                    aliases on <strong>{preview.aliasFixedEntries}</strong> entr{preview.aliasFixedEntries===1?'y':'ies'} ({preview.aliasDuplicatesRemoved} duplicate cop{preview.aliasDuplicatesRemoved===1?'y':'ies'}{(preview.aliasRepaired ?? 0) > 0 ? `, ${preview.aliasRepaired} repaired in-string repeat${preview.aliasRepaired===1?'':'s'}` : ''}{preview.aliasMaxBefore > 1 ? `, worst entry had ${preview.aliasMaxBefore} aliases` : ''}).
                   </span>
                 )}
               </div>
