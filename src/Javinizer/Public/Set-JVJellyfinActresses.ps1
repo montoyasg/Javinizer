@@ -256,6 +256,9 @@ function Set-JVJellyfinActresses {
                     try {
                         $s = Get-Content -LiteralPath $statePath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
                         if ($s) {
+                            if ($s.progress.current -ne $cur) {
+                                $s.progress.updatedAt = (Get-Date).ToUniversalTime().ToString('o')
+                            }
                             $s.progress.current = $cur
                             $s.progress.total   = $totalCount
                             $s.progress.message = "skip $($p.Name) (already populated)"
@@ -367,6 +370,9 @@ function Set-JVJellyfinActresses {
             try {
                 $s = Get-Content -LiteralPath $statePath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
                 if ($s) {
+                    if ($s.progress.current -ne $cur) {
+                        $s.progress.updatedAt = (Get-Date).ToUniversalTime().ToString('o')
+                    }
                     $s.progress.current = $cur
                     $s.progress.total   = $totalCount
                     $s.progress.message = "updating $($p.Name)"

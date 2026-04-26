@@ -2387,6 +2387,14 @@ function App() {
     } catch {}
   }, []);
 
+  // Fetch the running module version once, render at bottom-left so it's
+  // obvious which release is actually live (matters when diagnosing "did
+  // my upgrade apply?" or "is the browser serving stale app.jsx?").
+  const [version, setVersion] = useState('');
+  useEffect(() => {
+    api('/api/version').then(r => setVersion(r?.version || '')).catch(() => {});
+  }, []);
+
   // On mount: if we hydrated a job id from localStorage, verify the state
   // file still exists. If the server has reaped it (404), clear. Otherwise
   // keep — the JobProgressBar will fetch + render whatever state is there
@@ -2534,6 +2542,12 @@ function App() {
       {showHelp && <HelpModal onClose={()=>setShowHelp(false)} />}
       {showSortAll && <SortAllModal videos={videos} settings={settings} onClose={()=>setShowSortAll(false)} />}
       {showManualScrape && <ManualModal onClose={()=>setShowManualScrape(false)} toast={add} />}
+      {version && (
+        <div style={{position:'fixed', left:8, bottom:6, fontSize:10, color:'var(--text-muted)', fontFamily:'var(--mono, monospace)', pointerEvents:'none', userSelect:'none', opacity:0.55, zIndex:1}}
+             title={`Javinizer v${version} — running module reported by /api/version`}>
+          v{version}
+        </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.8.4] - 2026-04-26
+
+### Fixed
+
+- **`progress.updatedAt` was never bumped during Jellyfin sync or
+  Phase B of refresh.** Both flows write progress directly to the
+  job state file from inside `ForEach-Object -Parallel` (bypassing
+  `Update-JVJobProgress`), and v1.8.0 only added the `updatedAt`
+  bump inside `Update-JVJobProgress`. Effect: after 60 seconds in
+  any sync-to-Jellyfin run (or in Phase B of a Jellyfin-first
+  refresh), the UI's `· stalled Xm` indicator would *always* fire
+  even though the job was actively progressing — false alarm.
+  - All three direct-write call sites
+    ([Set-JVJellyfinActresses.ps1:259](src/Javinizer/Public/Set-JVJellyfinActresses.ps1#L259),
+    [Set-JVJellyfinActresses.ps1:370](src/Javinizer/Public/Set-JVJellyfinActresses.ps1#L370),
+    [Invoke-JVActressRefreshWorker.ps1:179](src/Javinizer/JVWeb/Lib/Invoke-JVActressRefreshWorker.ps1#L179))
+    now bump `progress.updatedAt` whenever `current` changes,
+    matching the `Update-JVJobProgress` behavior. The stalled
+    indicator now means what it's supposed to mean.
+
+### Added
+
+- **Version badge in the bottom-left corner of the page.** Small
+  muted `vX.Y.Z` label that fetches from a new `GET /api/version`
+  route returning the running `ModuleVersion`. Useful for verifying
+  "did my upgrade actually apply?" without diving into the module
+  manifest. The route reads `Get-Module Javinizer` so it always
+  reflects what's actually loaded into Pode.
+
 ## [1.8.3] - 2026-04-26
 
 ### Fixed

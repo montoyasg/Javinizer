@@ -176,6 +176,9 @@ function Invoke-JVActressRefreshWorker {
                     try {
                         $s = Get-Content -LiteralPath $sp -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
                         if ($s) {
+                            if ($s.progress.current -ne $cur) {
+                                $s.progress.updatedAt = (Get-Date).ToUniversalTime().ToString('o')
+                            }
                             $s.progress.current = $cur
                             $s.progress.total   = $totC
                             $s.progress.message = "phase B: promoting $($task.Canonical.name)"
