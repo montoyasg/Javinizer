@@ -56,7 +56,7 @@ function Set-JVJellyfinActresses {
         updated       = 0
         skipped       = 0
         notMatched    = @()
-        fieldsUpdated = @{ photo=0; bio=0; birthdate=0; aliases=0 }
+        fieldsUpdated = @{ photo=0; bio=0; birthdate=0; aliases=0; photoRefetched=0 }
         merged        = @()
         errors        = @()
     }
@@ -193,15 +193,30 @@ function Set-JVJellyfinActresses {
     # Shared accumulators. Mutations inside ForEach-Object -Parallel are
     # serialized by [Monitor]::Enter on the synchronized hashtable.
     $shared = [hashtable]::Synchronized(@{
-        counter   = 0
-        updated   = 0
-        skipped   = 0
-        photo     = 0
-        bio       = 0
-        birthdate = 0
-        aliases   = 0
+        counter         = 0
+        updated         = 0
+        skipped         = 0
+        photo           = 0
+        bio             = 0
+        birthdate       = 0
+        aliases         = 0
+        photoRefetched  = 0   # photo upload that succeeded only after xcity fallback
     })
     $errBag = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
+
+    # Resolve the xcity scraper path once, before the parallel block. Each
+    # runspace dot-sources it on first fallback so Get-XcityActressDetail
+    # is callable even though parallel runspaces don't auto-import the
+    # parent module. Falls back gracefully when the scraper isn't reachable
+    # (e.g. callers running this function outside the JVWeb stack) — in
+    # that case the fallback path silently no-ops.
+    $scraperPath = $null
+    foreach ($cand in @(
+        $(if ($PSScriptRoot) { Join-Path (Split-Path -Parent $PSScriptRoot) 'Private/Scraper.Xcity.ps1' }),
+        $(if ($env:JVWEB_LIB) { Join-Path ((Get-Item $env:JVWEB_LIB).Parent.FullName) 'Private/Scraper.Xcity.ps1' })
+    )) {
+        if ($cand -and (Test-Path -LiteralPath $cand)) { $scraperPath = $cand; break }
+    }
 
     $jobStatePath = $global:JVActiveJobStatePath
     $matchedTotal = $tasks.Count
@@ -221,6 +236,7 @@ function Set-JVJellyfinActresses {
         $dry         = $using:DryRun
         $statePath   = $using:jobStatePath
         $totalCount  = $using:matchedTotal
+        $scrPath     = $using:scraperPath
 
         function _bumpField {
             param($Sh, $Name)
@@ -283,19 +299,56 @@ function Set-JVJellyfinActresses {
                         _bumpField $sh 'photo'
                         $touched = $true
                     } else {
+                        # Try the stored URL first. If it 500s / 404s / times
+                        # out, fall through to xcity by xcityId — useful when
+                        # primaryUrl points at a stale Jellyfin URL or an
+                        # xcity URL whose underlying image has been removed.
+                        # Net effect: actresses with broken stored photos get
+                        # automatically re-photographed from the xcity detail
+                        # page. Bounded by Invoke-XcityRequest's existing 60s
+                        # per-call wall-time budget so one slow request
+                        # doesn't stall the whole sync.
+                        $bytes        = $null
+                        $usedFallback = $false
                         try {
                             $bytes = (Invoke-WebRequest -Method Get -Uri $entry.primaryUrl -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop).Content
-                            $b64 = [Convert]::ToBase64String($bytes)
-                            if (-not $hasPrimary -or $replace) {
-                                Invoke-WebRequest -Method Post -Uri "$base/Items/$($p.Id)/Images/Primary$apiSuffix" -Body $b64 -ContentType 'image/jpeg' -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop | Out-Null
-                            }
-                            if (-not $hasThumb -or $replace) {
-                                Invoke-WebRequest -Method Post -Uri "$base/Items/$($p.Id)/Images/Thumb$apiSuffix" -Body $b64 -ContentType 'image/jpeg' -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop | Out-Null
-                            }
-                            _bumpField $sh 'photo'
-                            $touched = $true
                         } catch {
-                            $errs.Add("photo $($p.Name): $_")
+                            $primaryErr = "$_"
+                            if ($entry.xcityId -and $scrPath -and (Test-Path -LiteralPath $scrPath)) {
+                                try {
+                                    . $scrPath
+                                    $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+                                    $detail = Get-XcityActressDetail -Id "$($entry.xcityId)" -Session $session
+                                    $altUrl = $detail.PrimaryUrl
+                                    if ($altUrl -and $altUrl -ne $entry.primaryUrl) {
+                                        $bytes = (Invoke-WebRequest -Method Get -Uri $altUrl -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop).Content
+                                        $usedFallback = $true
+                                    } else {
+                                        $errs.Add("photo $($p.Name): $primaryErr; xcity returned same/empty URL [$($entry.xcityId)]")
+                                    }
+                                } catch {
+                                    $errs.Add("photo $($p.Name): $primaryErr; xcity fallback also failed: $_")
+                                }
+                            } else {
+                                $errs.Add("photo $($p.Name): $primaryErr")
+                            }
+                        }
+
+                        if ($bytes) {
+                            try {
+                                $b64 = [Convert]::ToBase64String($bytes)
+                                if (-not $hasPrimary -or $replace) {
+                                    Invoke-WebRequest -Method Post -Uri "$base/Items/$($p.Id)/Images/Primary$apiSuffix" -Body $b64 -ContentType 'image/jpeg' -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop | Out-Null
+                                }
+                                if (-not $hasThumb -or $replace) {
+                                    Invoke-WebRequest -Method Post -Uri "$base/Items/$($p.Id)/Images/Thumb$apiSuffix" -Body $b64 -ContentType 'image/jpeg' -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop | Out-Null
+                                }
+                                _bumpField $sh 'photo'
+                                if ($usedFallback) { _bumpField $sh 'photoRefetched' }
+                                $touched = $true
+                            } catch {
+                                $errs.Add("photo upload $($p.Name): $_")
+                            }
                         }
                     }
                 }
@@ -387,10 +440,14 @@ function Set-JVJellyfinActresses {
     # Sync stats back from shared counters.
     $stats.updated = $shared.updated
     $stats.skipped = $shared.skipped
-    $stats.fieldsUpdated.photo     = $shared.photo
-    $stats.fieldsUpdated.bio       = $shared.bio
-    $stats.fieldsUpdated.birthdate = $shared.birthdate
-    $stats.fieldsUpdated.aliases   = $shared.aliases
+    $stats.fieldsUpdated.photo          = $shared.photo
+    $stats.fieldsUpdated.bio            = $shared.bio
+    $stats.fieldsUpdated.birthdate      = $shared.birthdate
+    $stats.fieldsUpdated.aliases        = $shared.aliases
+    $stats.fieldsUpdated.photoRefetched = $shared.photoRefetched
+    if ($shared.photoRefetched -gt 0) {
+        _emit-log "photo refetched from xcity for $($shared.photoRefetched) actress$(if ($shared.photoRefetched -eq 1) {''} else {'es'}) (stored URL was unreachable)"
+    }
     foreach ($e in $errBag) { $stats.errors += $e }
 
     _emit-progress $matchedTotal $matchedTotal "done"

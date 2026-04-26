@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.11.0] - 2026-04-26
+
+### Added
+
+- **Sync to Jellyfin: automatic xcity fallback for broken photo
+  URLs.** When the dataset's stored `primaryUrl` returns 500/404/
+  times out (e.g. a stale xcity URL whose underlying image was
+  removed, or a Phase B-promoted Jellyfin URL that's since gone
+  bad), the sync now falls through to xcity by `xcityId` to fetch
+  a fresh `PrimaryUrl` and retries the upload. Previously the
+  photo upload simply failed-silent for that actress; now most
+  recoverable cases self-heal.
+  - The fallback uses the existing `Get-XcityActressDetail`
+    helper (already in `Scraper.Xcity.ps1`) which goes through
+    `Invoke-XcityRequest`'s 60 s per-call wall-time budget — one
+    slow xcity request can't stall the whole sync.
+  - Refetch is **not** written back to `jvActresses.json`. To
+    persist the new URL, run "Refetch missing" or a fresh sync-
+    from-Jellyfin.
+  - Same fallback path in dry-run = skip (no network calls). In
+    real apply, only attempts when `xcityId` is set on the entry.
+  - Returned stats gain `fieldsUpdated.photoRefetched` counting
+    actresses whose photo upload succeeded only after fallback.
+    Final log line: `photo refetched from xcity for N actress(es)
+    (stored URL was unreachable)`.
+  - Errors are logged with both the original failure and the
+    fallback failure, so debugging stays clear: `photo X: HTTP
+    500 ...; xcity fallback also failed: ...`.
+
 ## [1.10.3] - 2026-04-26
 
 ### Fixed
