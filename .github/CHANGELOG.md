@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.6.1] - 2026-04-26
+
+### Fixed
+
+- **Empty-name refresh requests are now rejected at the boundary
+  instead of silently doing nothing.** Previously, a Library refetch
+  on an actress with a blank `name` field (or a per-movie scrape with
+  unparseable actress names) would queue a refresh job that did 0/0
+  work — the worker's pre-skip filtered the empty names out. Now:
+  - `POST /api/actresses/refresh` with `source='names'` culls
+    blank/whitespace/null `name` fields up-front and returns **400
+    "names list is empty after dropping N blank entries; nothing to
+    refresh"** when the cleaned list is empty.
+  - `POST /api/actresses/lookup`'s `autoEnrich` path also drops empty
+    misses before queueing, preventing it from spawning no-op jobs.
+  - The UI's `refetchOne` / `refetchMissing` / `ActressPanel.refresh`
+    paths trim and filter blank names before posting; `refetchOne`
+    surfaces a toast instead of firing a request when the entry has
+    no name.
+  - The worker logs `"dropped N empty/whitespace name(s) at pre-skip"`
+    when defense-in-depth catches anything the route missed (e.g.
+    direct CLI callers).
+
 ## [1.6.0] - 2026-04-25
 
 ### Added

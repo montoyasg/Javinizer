@@ -30,14 +30,20 @@ Add-PodeRoute -Method Post -Path '/api/actresses/lookup' -ScriptBlock {
         } else { $true }
 
         if ($autoEnrich -and $misses.Count -gt 0) {
-            $libDir = $env:JVWEB_LIB
-            $manifestPath = $env:JVWEB_MANIFEST
-            $missList = $misses.ToArray()
-
-            $job = Start-JVJob -Kind 'actress-refresh' -ModulePath $manifestPath -LibDir $libDir `
-                -Arguments @{ source = 'names'; names = $missList; replaceExisting = $false } `
-                -WorkerFunction 'Invoke-JVActressRefreshWorker'
-            $jobId = $job.jobId
+            # Drop empty-name misses before queueing — the worker would skip
+            # them anyway, but we don't want a refresh job to run for nothing.
+            $missList = New-Object System.Collections.Generic.List[Object]
+            foreach ($m in $misses) {
+                if ("$($m.name)".Trim()) { $missList.Add($m) | Out-Null }
+            }
+            if ($missList.Count -gt 0) {
+                $libDir = $env:JVWEB_LIB
+                $manifestPath = $env:JVWEB_MANIFEST
+                $job = Start-JVJob -Kind 'actress-refresh' -ModulePath $manifestPath -LibDir $libDir `
+                    -Arguments @{ source = 'names'; names = $missList.ToArray(); replaceExisting = $false } `
+                    -WorkerFunction 'Invoke-JVActressRefreshWorker'
+                $jobId = $job.jobId
+            }
         }
 
         Write-PodeJsonResponse -Value @{
@@ -64,6 +70,28 @@ Add-PodeRoute -Method Post -Path '/api/actresses/refresh' -ScriptBlock {
         if ($source -eq 'names' -and -not $body.names) {
             Write-PodeJsonResponse -Value @{ error = "names required when source='names'" } -StatusCode 400
             return
+        }
+
+        # Cull entries with empty/whitespace names. The worker's pre-skip would
+        # filter them out anyway, but rejecting at the boundary gives the
+        # caller a clear 400 instead of a job that silently does nothing.
+        $cleanedNames = @()
+        $emptyDropped = 0
+        if ($source -eq 'names') {
+            $rawNames = @($body.names)
+            $kept = New-Object System.Collections.Generic.List[Object]
+            foreach ($n in $rawNames) {
+                $candidate = "$($n.name)".Trim()
+                if (-not $candidate) { $emptyDropped++; continue }
+                $kept.Add($n) | Out-Null
+            }
+            $cleanedNames = $kept.ToArray()
+            if ($cleanedNames.Count -eq 0) {
+                Write-PodeJsonResponse -Value @{
+                    error = "names list is empty after dropping $emptyDropped blank entr$(if ($emptyDropped -eq 1) {'y'} else {'ies'}); nothing to refresh"
+                } -StatusCode 400
+                return
+            }
         }
 
         $libDir = $env:JVWEB_LIB
@@ -97,7 +125,7 @@ Add-PodeRoute -Method Post -Path '/api/actresses/refresh' -ScriptBlock {
 
         $arguments = @{
             source              = $source
-            names               = @($body.names)
+            names               = $cleanedNames
             replaceExisting     = [bool]$body.replaceExisting
             xcityParallelism    = $xcityParallelism
             jellyfinParallelism = $jellyfinParallelism

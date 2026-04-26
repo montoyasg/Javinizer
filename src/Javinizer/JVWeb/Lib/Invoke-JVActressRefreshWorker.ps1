@@ -210,9 +210,10 @@ function Invoke-JVActressRefreshWorker {
     # Pre-skip phase (sequential, in-memory). Filters out empty names,
     # already-populated entries, and Phase-B-captured names.
     $needFetch = New-Object System.Collections.Generic.List[Object]
+    $emptyDropped = 0
     foreach ($n in $names) {
         $romaji = "$($n.name)".Trim()
-        if (-not $romaji) { $stats.skipped++; continue }
+        if (-not $romaji) { $stats.skipped++; $emptyDropped++; continue }
         if ($preCaptured.Contains($romaji)) { continue }
         if (-not $replaceExisting) {
             $existing = Find-JVActress -Name $romaji -JapaneseName $n.japaneseName -Aliases @($n.aliases) -Dataset $dataset
@@ -222,6 +223,10 @@ function Invoke-JVActressRefreshWorker {
             }
         }
         $needFetch.Add($n) | Out-Null
+    }
+
+    if ($emptyDropped -gt 0) {
+        Add-JVJobLog "dropped $emptyDropped empty/whitespace name$(if ($emptyDropped -eq 1) {''} else {'s'}) at pre-skip"
     }
 
     $tot = $needFetch.Count

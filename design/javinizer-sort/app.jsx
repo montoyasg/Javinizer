@@ -334,7 +334,10 @@ function ActressLibrary({ onJob, addToast }) {
   };
 
   const refetchMissing = async () => {
-    const targets = data.entries.filter(e => !e.bio || !e.primaryUrl).map(e => ({ name: e.name, japaneseName: e.japaneseName, aliases: e.aliases }));
+    const targets = data.entries
+      .filter(e => !e.bio || !e.primaryUrl)
+      .map(e => ({ name: (e.name || '').trim(), japaneseName: e.japaneseName, aliases: e.aliases }))
+      .filter(e => e.name);
     if (targets.length === 0) { addToast?.('Nothing to refetch on this page', 'info'); return; }
     try {
       const res = await api('/api/actresses/refresh', {
@@ -346,12 +349,14 @@ function ActressLibrary({ onJob, addToast }) {
   };
 
   const refetchOne = async (entry) => {
+    const name = (entry?.name || '').trim();
+    if (!name) { addToast?.('Skipped: actress has no name to query xcity with', 'info'); return; }
     try {
       const res = await api('/api/actresses/refresh', {
         method:'POST',
-        body:{ source:'names', names:[{ name: entry.name, japaneseName: entry.japaneseName, aliases: entry.aliases }], replaceExisting:true, xcityParallelism: xcityParallel },
+        body:{ source:'names', names:[{ name, japaneseName: entry.japaneseName, aliases: entry.aliases }], replaceExisting:true, xcityParallelism: xcityParallel },
       });
-      if (res.jobId) { onJob?.(res.jobId); addToast?.(`Refetching ${entry.name}`, 'ok'); }
+      if (res.jobId) { onJob?.(res.jobId); addToast?.(`Refetching ${name}`, 'ok'); }
     } catch (e) { addToast?.('Refetch failed: ' + e.message, 'error'); }
   };
 
@@ -1511,10 +1516,15 @@ function ActressPanel({ actresses, onJob }) {
     setBusy(true);
     try {
       const names = actresses.map(a => ({
-        name: [a.LastName, a.FirstName].filter(Boolean).join(' ') || a.Name || '',
+        name: ([a.LastName, a.FirstName].filter(Boolean).join(' ') || a.Name || '').trim(),
         japaneseName: a.JapaneseName || '',
         aliases: a.Aliases || [],
       })).filter(n => n.name);
+      if (names.length === 0) {
+        // Every actress had a blank name — common with Tokyohot/DLgetchu scrapes.
+        // The server would reject with 400; bail before the round-trip.
+        return;
+      }
       const res = await api('/api/actresses/refresh', {
         method:'POST',
         body:{ source:'names', names, replaceExisting:true },
