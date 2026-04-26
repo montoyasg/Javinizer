@@ -5,7 +5,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 // Compared against /api/version's server version; mismatch means
 // the browser is running cached old app.jsx — a hard-refresh
 // (Cmd+Shift+R) is needed to pick up server-side fixes.
-const APP_JSX_VERSION = '1.10.0';
+const APP_JSX_VERSION = '1.10.1';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -360,32 +360,37 @@ function JobProgressBar({ jobId, onDone }) {
 // ─── Actress Cleanup Modal ────────────────────────────────────────────────────
 
 function ActressCleanupModal({ onClose, onDone, addToast }) {
-  const [preview, setPreview] = useState(null);  // { removedCount, keptCount, removed: [{key,name,reason}] }
+  const [preview, setPreview] = useState(null);  // { removedCount, keptCount, removed, aliasFixedEntries, aliasDuplicatesRemoved, aliasMaxBefore }
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [rules, setRules] = useState({ 'empty-name': true, 'stub': true, 'mojibake': true });
+  const [dedupAliases, setDedupAliases] = useState(true);
 
   const runDryRun = useCallback(async () => {
     setLoading(true);
     try {
       const selected = Object.keys(rules).filter(k => rules[k]);
-      const res = await api('/api/actresses/cleanup', { method:'POST', body:{ rules: selected, dryRun: true } });
+      const res = await api('/api/actresses/cleanup', { method:'POST', body:{ rules: selected, dedupAliases, dryRun: true } });
       setPreview(res);
     } catch (e) {
       addToast?.('Preview failed: ' + e.message, 'error');
       setPreview({ removedCount:0, keptCount:0, removed:[] });
     } finally { setLoading(false); }
-  }, [rules, addToast]);
+  }, [rules, dedupAliases, addToast]);
 
   useEffect(() => { runDryRun(); }, [runDryRun]);
 
   const commit = async () => {
-    if (!preview || preview.removedCount === 0) return;
+    const willChange = (preview?.removedCount ?? 0) + (preview?.aliasFixedEntries ?? 0);
+    if (!preview || willChange === 0) return;
     setBusy(true);
     try {
       const selected = Object.keys(rules).filter(k => rules[k]);
-      const res = await api('/api/actresses/cleanup', { method:'POST', body:{ rules: selected, dryRun: false } });
-      addToast?.(`Removed ${res.removedCount} entr${res.removedCount === 1 ? 'y' : 'ies'} (${res.keptCount} kept)`, 'ok');
+      const res = await api('/api/actresses/cleanup', { method:'POST', body:{ rules: selected, dedupAliases, dryRun: false } });
+      const parts = [];
+      if (res.removedCount > 0)         parts.push(`removed ${res.removedCount} entr${res.removedCount===1?'y':'ies'}`);
+      if (res.aliasFixedEntries > 0)    parts.push(`deduped aliases on ${res.aliasFixedEntries} entr${res.aliasFixedEntries===1?'y':'ies'} (${res.aliasDuplicatesRemoved} copies)`);
+      addToast?.(parts.length ? parts.join(', ') : `No changes (${res.keptCount} kept)`, 'ok');
       onDone?.();
     } catch (e) { addToast?.('Cleanup failed: ' + e.message, 'error'); }
     finally { setBusy(false); }
@@ -417,6 +422,10 @@ function ActressCleanupModal({ onClose, onDone, addToast }) {
             <input type="checkbox" checked={rules['mojibake']} onChange={e=>setRules(s=>({...s,'mojibake':e.target.checked}))} style={{accentColor:'var(--accent)'}}/>
             Mojibake / control chars (â, Å, \n, …)
           </label>
+          <label style={{display:'flex',gap:5,alignItems:'center',cursor:'pointer',userSelect:'none'}} title="Walk every kept entry's aliases array, dedup case-insensitively, trim whitespace, and drop any alias matching the canonical name. Older releases didn't dedup aggressively enough and let the same alias accumulate hundreds of times. This is a one-shot fix; the merge function is now stricter so it won't re-accumulate.">
+            <input type="checkbox" checked={dedupAliases} onChange={e=>setDedupAliases(e.target.checked)} style={{accentColor:'var(--accent)'}}/>
+            Dedup duplicate aliases
+          </label>
         </div>
 
         <div style={{flex:1,overflowY:'auto',background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:6,padding:10}}>
@@ -424,13 +433,21 @@ function ActressCleanupModal({ onClose, onDone, addToast }) {
             <div style={{color:'var(--text-muted)',fontSize:12,textAlign:'center',padding:20}}>Scanning…</div>
           ) : !preview ? (
             <div style={{color:'var(--text-muted)',fontSize:12,textAlign:'center',padding:20}}>No data</div>
-          ) : preview.removedCount === 0 ? (
+          ) : preview.removedCount === 0 && (preview.aliasFixedEntries ?? 0) === 0 ? (
             <div style={{color:'var(--text-soft)',fontSize:13,textAlign:'center',padding:30}}>
               ✓ Nothing to clean — all {preview.keptCount} entries are valid.
             </div>
           ) : (
             <div style={{display:'flex',flexDirection:'column',gap:8,fontSize:11}}>
-              <div style={{color:'var(--text-soft)'}}>Will remove <strong>{preview.removedCount}</strong> entr{preview.removedCount===1?'y':'ies'}, keep <strong>{preview.keptCount}</strong>.</div>
+              <div style={{color:'var(--text-soft)'}}>
+                {preview.removedCount > 0 && <>Will remove <strong>{preview.removedCount}</strong> entr{preview.removedCount===1?'y':'ies'}, keep <strong>{preview.keptCount}</strong>.</>}
+                {(preview.aliasFixedEntries ?? 0) > 0 && (
+                  <span>
+                    {preview.removedCount > 0 ? ' Also dedup ' : 'Will dedup '}
+                    aliases on <strong>{preview.aliasFixedEntries}</strong> entr{preview.aliasFixedEntries===1?'y':'ies'} ({preview.aliasDuplicatesRemoved} duplicate cop{preview.aliasDuplicatesRemoved===1?'y':'ies'} total{preview.aliasMaxBefore > 1 ? `, worst entry had ${preview.aliasMaxBefore} aliases` : ''}).
+                  </span>
+                )}
+              </div>
               {Object.entries(reasonGroups).map(([reason, items]) => (
                 <div key={reason}>
                   <div style={{fontWeight:600, color:'var(--text-muted)', textTransform:'uppercase', fontSize:10, letterSpacing:'0.06em', marginTop:6, marginBottom:3}}>
@@ -453,10 +470,27 @@ function ActressCleanupModal({ onClose, onDone, addToast }) {
         <div style={{display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid var(--border)',paddingTop:10,flexShrink:0}}>
           <button onClick={onClose} style={{...S.btn}}>Cancel</button>
           <button onClick={runDryRun} disabled={loading || busy} style={{...S.btn}}>↻ Re-scan</button>
-          <button onClick={commit} disabled={loading || busy || !preview || preview.removedCount === 0}
-                  style={{background:'var(--red, #c55)', border:'none', color:'#fff', padding:'6px 16px', borderRadius:5, fontSize:12, fontWeight:600, opacity:(loading||busy||!preview||preview?.removedCount===0)?0.5:1, cursor:(loading||busy||!preview||preview?.removedCount===0)?'default':'pointer'}}>
-            {busy ? 'Removing…' : `🗑 Remove ${preview?.removedCount ?? 0}`}
-          </button>
+          {(() => {
+            const willRemove = preview?.removedCount ?? 0;
+            const willDedup  = preview?.aliasFixedEntries ?? 0;
+            const willChange = willRemove + willDedup;
+            const disabled = loading || busy || willChange === 0;
+            const label = busy
+              ? 'Applying…'
+              : willChange === 0
+                ? '🗑 Apply'
+                : willRemove > 0 && willDedup > 0
+                  ? `🗑 Remove ${willRemove}, dedup ${willDedup}`
+                  : willRemove > 0
+                    ? `🗑 Remove ${willRemove}`
+                    : `✂ Dedup ${willDedup}`;
+            return (
+              <button onClick={commit} disabled={disabled}
+                      style={{background:'var(--red, #c55)', border:'none', color:'#fff', padding:'6px 16px', borderRadius:5, fontSize:12, fontWeight:600, opacity:disabled?0.5:1, cursor:disabled?'default':'pointer'}}>
+                {label}
+              </button>
+            );
+          })()}
         </div>
       </div>
     </div>

@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.10.1] - 2026-04-26
+
+### Fixed
+
+- **Aliases were accumulating duplicates of the same name** —
+  user reported one actress with the canonical name repeated
+  hundreds of times in the `aliases` array. Two root causes,
+  both now fixed:
+  - `Merge-JVActressEntry` dedup'd aliases via
+    `Sort-Object -Unique`, which is **case-sensitive** and
+    didn't trim whitespace. Subtle differences (`"Yamagishi
+    Aika"` vs `"yamagishi aika"` vs `"Yamagishi Aika "`) all
+    survived as distinct entries and accumulated across sync
+    round-trips.
+  - The merge function also didn't strip the **canonical name**
+    itself when it appeared in the alias list, so any source
+    (xcity, Jellyfin, name-swap dedup) that fed the name back
+    in as an alias kept piling it on.
+  - The fix: trim whitespace, dedup case-insensitively via a
+    `HashSet[string]` with `OrdinalIgnoreCase`, drop the
+    canonical name, and preserve insertion order (so saved
+    output is stable across runs instead of re-sorting on
+    every save).
+
+### Added
+
+- **"Dedup duplicate aliases" checkbox in the cleanup modal**
+  (default ON). One-shot fix that walks every kept entry's
+  aliases array and applies the new merge-function logic to
+  existing data — eliminates accumulated duplicates from older
+  releases. The dry-run preview shows
+  `Will dedup aliases on N entries (M duplicate copies total,
+  worst entry had K aliases)` so the scale of corruption is
+  visible before commit.
+- `POST /api/actresses/cleanup` body gains `dedupAliases?: bool`.
+  Response gains `aliasFixedEntries`, `aliasDuplicatesRemoved`,
+  `aliasMaxBefore` fields.
+
 ## [1.10.0] - 2026-04-26
 
 ### Added

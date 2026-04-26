@@ -266,6 +266,11 @@ Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
         $rules = if ($body.rules) { @($body.rules | ForEach-Object { "$_".Trim().ToLowerInvariant() } | Where-Object { $_ }) }
                  else { @('empty-name', 'stub', 'mojibake') }
         $dryRun = [bool]$body.dryRun
+        # Optional companion fix: walk every kept entry, dedup its `aliases`
+        # array (case-insensitive, trim whitespace, drop self-references to
+        # the canonical name). Older releases didn't dedup aggressively
+        # enough and let the same alias accumulate hundreds of times.
+        $dedupAliases = [bool]$body.dedupAliases
 
         $valid = @('empty-name', 'stub', 'mojibake')
         foreach ($r in $rules) {
@@ -308,7 +313,42 @@ Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
             }
         }
 
-        if (-not $dryRun -and $removed.Count -gt 0) {
+        # Dedup aliases on kept entries. Tracks how many entries had dupes,
+        # how many duplicate alias copies were eliminated, and the worst-case
+        # accumulation count seen on any single entry — useful to gauge the
+        # scale of corruption being repaired.
+        $aliasFixed      = 0
+        $aliasDuplicates = 0
+        $aliasMaxBefore  = 0
+        if ($dedupAliases) {
+            $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($kk in @($kept.Keys)) {
+                $entry = $kept[$kk]
+                $rawAliases = @($entry.aliases) | Where-Object { $null -ne $_ }
+                $beforeCount = $rawAliases.Count
+                if ($beforeCount -eq 0) { continue }
+
+                $canonicalName = "$($entry.name)".Trim()
+                $seen.Clear()
+                if ($canonicalName) { [void]$seen.Add($canonicalName) }
+
+                $cleaned = New-Object System.Collections.Generic.List[string]
+                foreach ($a in $rawAliases) {
+                    $t = "$a".Trim()
+                    if (-not $t) { continue }
+                    if ($seen.Add($t)) { $cleaned.Add($t) | Out-Null }
+                }
+
+                if ($cleaned.Count -ne $beforeCount) {
+                    $entry.aliases = @($cleaned)
+                    $aliasFixed++
+                    $aliasDuplicates += ($beforeCount - $cleaned.Count)
+                    if ($beforeCount -gt $aliasMaxBefore) { $aliasMaxBefore = $beforeCount }
+                }
+            }
+        }
+
+        if (-not $dryRun -and ($removed.Count -gt 0 -or $aliasFixed -gt 0)) {
             Save-JVActressDataset -Dataset $kept | Out-Null
         }
 
@@ -330,6 +370,10 @@ Add-PodeRoute -Method Post -Path '/api/actresses/cleanup' -ScriptBlock {
   "keptCount": $($kept.Count),
   "removed": $removedJson,
   "rules": $rulesJson,
+  "dedupAliases": $($dedupAliases.ToString().ToLowerInvariant()),
+  "aliasFixedEntries": $aliasFixed,
+  "aliasDuplicatesRemoved": $aliasDuplicates,
+  "aliasMaxBefore": $aliasMaxBefore,
   "dryRun": $($dryRun.ToString().ToLowerInvariant())
 }
 "@

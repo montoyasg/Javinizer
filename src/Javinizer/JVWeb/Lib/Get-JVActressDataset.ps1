@@ -159,10 +159,27 @@ function Merge-JVActressEntry {
     }
 
     # Union aliases.
-    $existingAliases = @($Existing.aliases) | Where-Object { $_ }
-    $incomingAliases = @($Incoming.aliases) | Where-Object { $_ }
-    $allAliases = ($existingAliases + $incomingAliases) | Sort-Object -Unique
-    if ($allAliases) { $merged.aliases = @($allAliases) }
+    # - Trim whitespace before comparing — "Yamagishi Aika" and "Yamagishi Aika "
+    #   were previously treated as distinct, accumulating after enough round-trips.
+    # - Case-insensitive dedup — Sort-Object -Unique is case-sensitive by default,
+    #   so "Yamagishi Aika" and "yamagishi aika" used to survive as separate
+    #   entries.
+    # - Drop the canonical name from the aliases list — there's no point listing
+    #   the actress's own name as an alias, and historically xcity / Jellyfin
+    #   feeds have included the name itself which then accumulated.
+    # - Preserve insertion order (existing first, then new), so sync output is
+    #   stable across runs. Sort-Object would change the order on every save.
+    $existingAliases = @($Existing.aliases) | Where-Object { $_ } | ForEach-Object { "$_".Trim() } | Where-Object { $_ }
+    $incomingAliases = @($Incoming.aliases) | Where-Object { $_ } | ForEach-Object { "$_".Trim() } | Where-Object { $_ }
+    $canonicalName   = "$($merged.name)".Trim()
+    $seen   = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    if ($canonicalName) { [void]$seen.Add($canonicalName) }
+    $kept = New-Object System.Collections.Generic.List[string]
+    foreach ($a in @($existingAliases + $incomingAliases)) {
+        if ($seen.Add($a)) { $kept.Add($a) | Out-Null }
+    }
+    if ($kept.Count -gt 0) { $merged.aliases = @($kept) }
+    elseif ($merged.Contains('aliases')) { $merged.aliases = @() }
 
     return $merged
 }
