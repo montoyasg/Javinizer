@@ -8,6 +8,7 @@ ENV HOME=/root \
     VNC_PORT=5900 \
     NOVNC_PORT=6080 \
     VNC_PASSWORD= \
+    UMASK=0002 \
     PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

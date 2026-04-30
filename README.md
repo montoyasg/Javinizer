@@ -56,6 +56,7 @@ docker run -d --name javinizer-ng \
 - **`http://localhost:8600`** — JVWeb UI.
 - **`http://localhost:6080/vnc.html`** — noVNC desktop. Use this once to complete the javdb login when JVWeb prompts; the captured session is persisted in the `jvweb-config` volume and reused for ~30 days.
 - **`VNC_PASSWORD`** — leave unset for no auth (only safe on localhost). Set a value when exposing port `6080` beyond `127.0.0.1`.
+- **`UMASK`** — file mode creation mask applied before JVWeb starts. Default `0002` (new files `664`, new dirs `775`) so sorted output is group-writable, matching the typical Unraid `nobody:users` share layout. Set `UMASK=0022` to restore the previous root-friendly `644` / `755` behavior.
 - **Settings** — JVWeb writes user preferences to `/root/.jvsettings/jvSettings.json` inside the container. To start from the bundled defaults, copy [`src/Javinizer/jvSettings.json`](./src/Javinizer/jvSettings.json) into the `jvweb-settings` volume before first launch.
 - **Translation.** The built-in `google_web` module needs no extra dependencies and is selected by default when translation is toggled on from the JVWeb UI. Python-backed modules (`googletrans`, `google_trans_new`, `deepl`) are only invoked if you switch `sort.metadata.nfo.translate.module` in `jvSettings.json`; they require `docker exec javinizer-ng pip3 install <package>` first.
 

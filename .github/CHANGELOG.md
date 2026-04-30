@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.11.4] - 2026-04-30
+
+### Fixed
+
+- **Docker container now respects a configurable `UMASK`.** User
+  reported that files and directories moved by the container ended
+  up `drwxr-xr-x` (755) on the Unraid host, even though the parent
+  share was `drwxrwxr-x` (775). Root cause: the image
+  (`mcr.microsoft.com/dotnet/sdk:8.0-jammy`) shipped no UMASK
+  plumbing, so supervisord — and every PowerShell child it spawns —
+  inherited the container's default umask of `022`. PowerShell's
+  `Move-Item` on Linux respects that umask whenever it has to
+  recreate the file (cross-filesystem moves, atomic
+  rename-from-tmp), stripping the group-write bit.
+  - `Dockerfile` now declares `ENV UMASK=0002`.
+  - `docker/entrypoint.sh` now applies `umask "${UMASK:-0002}"`
+    before `exec`-ing supervisord, so every spawned process inherits
+    it via standard process inheritance.
+  - Combined with the existing PUID/PGID post-move `chown`, sorted
+    output now lands as `nobody:users` with `775`/`664` on Unraid
+    out of the box. Override with `-e UMASK=0022` to restore the
+    previous root-friendly `755`/`644` behavior.
+
 ## [1.11.3] - 2026-04-26
 
 ### Fixed
