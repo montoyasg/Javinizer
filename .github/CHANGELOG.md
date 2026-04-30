@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.11.5] - 2026-04-30
+
+### Fixed
+
+- **Next-UI version badge stuck on `ui v1.11.3 ↛ srv v1.11.4 ⚠`
+  after the v1.11.4 release.** v1.11.4 bumped `Javinizer.psd1`'s
+  `ModuleVersion` (so `/api/version` correctly returns `1.11.4`) but
+  forgot to bump the three companion constants in
+  `design/javinizer-sort/`: `APP_JSX_VERSION` in `app.jsx` and the
+  `?v=...` cache-buster on the `style.css` and `app.jsx` `<script>`
+  tags in `index.html`. Result: the React UI's baked-in version
+  stayed at `1.11.3` and the Header component flagged the mismatch
+  on every page load. v1.11.5 bumps all three to `1.11.5`. The
+  release-workflow note has been updated so future releases bump
+  these constants in lockstep with `Javinizer.psd1`.
+
 ## [1.11.4] - 2026-04-30
 
 ### Fixed
