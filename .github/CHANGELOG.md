@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.11.6] - 2026-05-01
+
+### Fixed
+
+- **Javdb session indicator flips to "no session cached" after
+  toggling the Sort Settings panel closed and reopening it**, even
+  though the session was just refreshed and is fully usable for
+  scrapes. Root cause: the `/api/javdb/session/status` route only
+  considered the cache "present" when `_jdb_session` was non-empty,
+  while the `/api/javdb/session/refresh` route and the runtime scrape
+  path (`Invoke-JVScrapeCached`) both accept `Session` *or*
+  `CfClearance`. In the default "Auto (anonymous, recommended)" mode
+  the headless Chromium capture is explicitly designed to require
+  only `cf_clearance` (Cloudflare clearance is what javdb gates on
+  for guest browsing), so the cache routinely lands on disk with
+  `Session = $null` and a valid `CfClearance` — refresh reports
+  success, the panel goes green optimistically, but on remount
+  `loadStatus()` re-queries the status route and sees `present:
+  false`. The status route's check now mirrors the refresh / scrape
+  definition (`Session -or CfClearance`), so the indicator correctly
+  stays green across panel toggles for anonymous sessions.
+
 ## [1.11.5] - 2026-04-30
 
 ### Fixed

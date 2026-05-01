@@ -161,7 +161,7 @@ Add-PodeRoute -Method Get -Path '/api/javdb/session/status' -ScriptBlock {
                 if ($cached -is [Array]) {
                     $cached = @($cached | Where-Object { $_ -and $_.PSObject.Properties['Session'] -and $_.Session })[-1]
                 }
-                if ($cached -and $cached.Session) {
+                if ($cached -and ($cached.Session -or $cached.CfClearance)) {
                     $present = $true
                     try { $source = $cached.Source } catch {}
                     try { $capturedAt = $cached.CapturedAt } catch {}
