@@ -62,8 +62,20 @@ function Get-R18DevUrl {
         }
 
         if ($null -eq $webRequest -and $Source -ne 'dump') {
-            if (Get-Command Get-R18DevHtmlRecord -ErrorAction SilentlyContinue) {
-                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$lookupId] [$($MyInvocation.MyCommand.Name)] not in cache; trying live r18.dev page"
+            # Primary live path: the plain-HTTP JSON API (fast, reliable with a
+            # browser UA). This is what restores fresh titles the weekly dump
+            # has not caught up to yet.
+            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$lookupId] [$($MyInvocation.MyCommand.Name)] not in cache; querying live r18.dev JSON API"
+            try {
+                $webRequest = Get-R18DevJsonRecord -Id $lookupId
+            } catch {
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$lookupId] [$($MyInvocation.MyCommand.Name)] live r18.dev JSON fetch failed: $PSItem"
+            }
+
+            # Last resort: drive Chromium/Playwright if the direct request was
+            # Cloudflare-blocked.
+            if ($null -eq $webRequest -and (Get-Command Get-R18DevHtmlRecord -ErrorAction SilentlyContinue)) {
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$lookupId] [$($MyInvocation.MyCommand.Name)] direct JSON missed; trying Playwright fallback"
                 try {
                     $webRequest = Get-R18DevHtmlRecord -Id $lookupId
                 } catch {

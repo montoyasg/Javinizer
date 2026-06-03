@@ -126,10 +126,12 @@ function Get-JavGuruCoverUrl {
         # but that CDN 403s on hotlink/download, so the poster fails to load.
         # The filename embeds the DMM content_id (118abf343), so rebuild the
         # direct DMM poster URL, which serves reliably (and is the large `pl`
-        # variant). The "p[ls].jpg" suffix avoids the site logo / sidebar
-        # thumbnails.
+        # variant). The "p[ls]" suffix avoids the site logo / sidebar
+        # thumbnails. WordPress appends a "-1", "-2", … dedup suffix when a
+        # filename collides (e.g. snos239pl-1.jpg), so allow an optional
+        # "-<n>" before the extension — without it those posters were missed.
         $m = [regex]::Match($Webrequest.Content,
-            '/wp-content/uploads/\d{4}/\d{2}/([a-z0-9]+)p[ls]\.jpg',
+            '/wp-content/uploads/\d{4}/\d{2}/([a-z0-9]+)p[ls](?:-\d+)?\.jpg',
             [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($m.Success) {
             $contentId = $m.Groups[1].Value.ToLower()

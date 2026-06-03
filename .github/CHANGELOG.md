@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.12.3] - 2026-06-03
+
+### Fixed
+
+- **r18.dev missed many titles and kept falling through to jav.guru.**
+  Two problems: (1) the only live fallback for titles newer than the weekly
+  dump drove headless Chromium, which is slow/flaky; and (2) the live
+  combined JSON returns `dvd_id: null`, so `Get-R18DevUrl`'s id validation
+  silently discarded *every* live result — even successful ones. Now
+  `Get-R18DevUrl` queries the r18.dev JSON API directly over plain HTTPS
+  first (via `Get-R18DevJsonRecord`, using a browser User-Agent so
+  Cloudflare serves real JSON instead of a 404), and only falls back to
+  Playwright if that request is Cloudflare-blocked. Both live paths now
+  re-inject the looked-up `dvd_id` so the record passes validation and is
+  used. This restores r18.dev as a source for titles released since the
+  last dump.
+- **jav.guru posters missing for some titles (e.g. SNOS-239).** The cover
+  filename regex required `…p[ls].jpg`, but WordPress appends a dedup
+  suffix on filename collisions (`snos239pl-1.jpg`), so those posters were
+  skipped. The pattern now allows an optional `-<n>` before the extension;
+  the rebuilt DMM URL (`…/mono/movie/adult/snos239/snos239pl.jpg`) was
+  verified to serve the full poster.
+
+### Changed
+
+- **Scraper-selection panel hides the Chinese-language (ZH) variants.**
+  JavLibrary (ZH), JavBus (ZH), JavDB (ZH) and Tokyo Hot (ZH) are removed
+  from the scraper toggle list in both the `/next` React UI and the classic
+  web UI. The backend wiring and settings keys are unchanged, so any
+  existing config that enables them keeps working.
+
 ## [1.12.2] - 2026-06-03
 
 ### Fixed

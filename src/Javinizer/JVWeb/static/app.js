@@ -749,19 +749,15 @@
         { key: 'scraper.movie.dmmja', label: 'DMM (JA)' },
         { key: 'scraper.movie.javlibrary', label: 'JavLibrary' },
         { key: 'scraper.movie.javlibraryja', label: 'JavLibrary (JA)' },
-        { key: 'scraper.movie.javlibraryzh', label: 'JavLibrary (ZH)' },
         { key: 'scraper.movie.javbus', label: 'JavBus' },
         { key: 'scraper.movie.javbusja', label: 'JavBus (JA)' },
-        { key: 'scraper.movie.javbuszh', label: 'JavBus (ZH)' },
         { key: 'scraper.movie.javdb', label: 'JavDB' },
-        { key: 'scraper.movie.javdbzh', label: 'JavDB (ZH)' },
         { key: 'scraper.movie.jav321ja', label: 'Jav321 (JA)' },
         { key: 'scraper.movie.mgstageja', label: 'MGStage (JA)' },
         { key: 'scraper.movie.aventertainment', label: 'AVEntertainment' },
         { key: 'scraper.movie.aventertainmentja', label: 'AVEntertainment (JA)' },
         { key: 'scraper.movie.tokyohot', label: 'Tokyo Hot' },
         { key: 'scraper.movie.tokyohotja', label: 'Tokyo Hot (JA)' },
-        { key: 'scraper.movie.tokyohotzh', label: 'Tokyo Hot (ZH)' },
     ];
 
     async function loadScraperSettings() {
