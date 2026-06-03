@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.12.4] - 2026-06-03
+
+### Fixed
+
+- **No poster for gravure/specialty titles not in r18.dev's catalog**
+  (e.g. REBD-*, OAE-*, FTK-*, FNS-*, brand-new ABF-*). The web scrape chain
+  (`Invoke-JVScrapeCached`: r18.dev → jav.guru → javdb) returned the *first*
+  non-null result and stopped. For these labels jav.guru supplies the
+  title/actress but re-hosts the cover under a DVD-ID-named CDN file
+  (`REBD-1035.jpg`) that 403s and carries no DMM content_id to rebuild — so
+  the record came back with a blank poster and javdb (which *does* carry
+  these covers) was never consulted. The chain now backfills the cover (and
+  screenshots) from javdb when the chosen source has no poster — a single
+  extra javdb fetch, only when the cover is actually missing. *(Requires a
+  javdb session; use “Refresh Javdb session” if covers stay blank.)*
+- **`javdb` was absent from every `sort.metadata.priority.*` list**, so the
+  CLI aggregation path could never use javdb for any field even when the
+  scraper was enabled. Added `javdb` after `javguru` across the priority
+  lists (and to `rating`/`series`), making it a real fallback source for
+  covers, screenshots, titles, etc. Titles that *are* in r18.dev (most of
+  the OAE/MIHD/FWAY/WAAA/CAWD/ABF set) are already restored by the live-JSON
+  fallback shipped in 1.12.3.
+
 ## [1.12.3] - 2026-06-03
 
 ### Fixed

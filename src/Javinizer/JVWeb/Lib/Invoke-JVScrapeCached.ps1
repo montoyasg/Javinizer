@@ -61,8 +61,24 @@ function Invoke-JVScrapeCached {
             $data = Invoke-JavGuruBranch -Id $Id
         }
 
-        if (-not $data -and $fallbackEnabled) {
-            $data = Invoke-JavdbBranch -Id $Id -Settings $Settings
+        if ($fallbackEnabled) {
+            if (-not $data) {
+                $data = Invoke-JavdbBranch -Id $Id -Settings $Settings
+            } elseif (-not $data.CoverUrl) {
+                # The chosen source had data but no poster. This happens for
+                # gravure/specialty labels (REBD, OAE, FTK, FNS…) that aren't
+                # in r18.dev's catalog: jav.guru supplies title/actress but
+                # re-hosts the cover under a DVD-ID-named CDN file that 403s and
+                # can't be rebuilt into a DMM URL. javdb carries these covers,
+                # so backfill the image fields from it (one javdb fetch, only
+                # when the poster is actually missing) rather than leaving it
+                # blank.
+                $jav = Invoke-JavdbBranch -Id $Id -Settings $Settings
+                if ($jav) {
+                    if (-not $data.CoverUrl -and $jav.CoverUrl) { $data.CoverUrl = $jav.CoverUrl }
+                    if (-not $data.ScreenshotUrl -and $jav.ScreenshotUrl) { $data.ScreenshotUrl = $jav.ScreenshotUrl }
+                }
+            }
         }
     }
 
