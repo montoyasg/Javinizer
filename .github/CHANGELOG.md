@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.12.1] - 2026-06-03
+
+### Added
+
+- **Scrapers panel in the React `/next` UI.** v1.12.0 added the r18.dev
+  cache status indicator + scraper controls only to the classic static
+  UI (`/`, inside the "⚙️ SCRAPERS" modal); users on the newer React UI
+  (`/next/`) had no way to see whether the local r18.dev database had
+  loaded. The Sort settings bar now includes a **Scrapers** panel
+  (`ScrapersPanel` in `design/javinizer-sort/app.jsx`) that leads with
+  the r18.dev cache status — a colored dot + "loaded — dump {date}
+  ({n}d old)" / "stale …" / "not built yet" / "rebuilding…" — plus a
+  **Rebuild now** button (drives the global progress bar via
+  `/api/r18dump/refresh`), the r18.dev source mode dropdown
+  (`scraper.movie.r18dev.source`), per-scraper enable toggles, and the
+  manual-search fallback toggles (`web.scrape.javguru.fallback`,
+  `web.scrape.javdb.fallback`). No backend changes — it consumes the
+  `/api/r18dump/status` route and settings whitelist shipped in v1.12.0.
+
 ## [1.12.0] - 2026-06-03
 
 ### Fixed

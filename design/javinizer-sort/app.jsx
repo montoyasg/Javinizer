@@ -5,7 +5,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 // Compared against /api/version's server version; mismatch means
 // the browser is running cached old app.jsx — a hard-refresh
 // (Cmd+Shift+R) is needed to pick up server-side fixes.
-const APP_JSX_VERSION = '1.12.0';
+const APP_JSX_VERSION = '1.12.1';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -1265,6 +1265,179 @@ function JavdbSessionPanel({ s, set, addToast }) {
   );
 }
 
+// ─── Scrapers Panel ───────────────────────────────────────────────────────────
+
+const SCRAPER_LIST = [
+  { key: 'scraper.movie.r18dev', label: 'r18.dev' },
+  { key: 'scraper.movie.javguru', label: 'jav.guru' },
+  { key: 'scraper.movie.dmm', label: 'DMM' },
+  { key: 'scraper.movie.dmmja', label: 'DMM (JA)' },
+  { key: 'scraper.movie.javlibrary', label: 'JavLibrary' },
+  { key: 'scraper.movie.javlibraryja', label: 'JavLibrary (JA)' },
+  { key: 'scraper.movie.javlibraryzh', label: 'JavLibrary (ZH)' },
+  { key: 'scraper.movie.javbus', label: 'JavBus' },
+  { key: 'scraper.movie.javbusja', label: 'JavBus (JA)' },
+  { key: 'scraper.movie.javbuszh', label: 'JavBus (ZH)' },
+  { key: 'scraper.movie.javdb', label: 'JavDB' },
+  { key: 'scraper.movie.javdbzh', label: 'JavDB (ZH)' },
+  { key: 'scraper.movie.jav321ja', label: 'Jav321 (JA)' },
+  { key: 'scraper.movie.mgstageja', label: 'MGStage (JA)' },
+  { key: 'scraper.movie.aventertainment', label: 'AVEntertainment' },
+  { key: 'scraper.movie.aventertainmentja', label: 'AVEntertainment (JA)' },
+  { key: 'scraper.movie.tokyohot', label: 'Tokyo Hot' },
+  { key: 'scraper.movie.tokyohotja', label: 'Tokyo Hot (JA)' },
+  { key: 'scraper.movie.tokyohotzh', label: 'Tokyo Hot (ZH)' },
+];
+
+function ScrapersPanel({ addToast, onJob }) {
+  const [toggles, setToggles] = useState(null); // null=loading
+  const [source, setSource] = useState('dump+html');
+  const [fbGuru, setFbGuru] = useState(true);
+  const [fbJavdb, setFbJavdb] = useState(true);
+  const [dump, setDump] = useState(null);        // r18.dev cache status, null=loading
+  const [rebuilding, setRebuilding] = useState(false);
+  const pollRef = useRef(null);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await api('/api/settings');
+      const srv = res.settings || {};
+      const t = {};
+      for (const sc of SCRAPER_LIST) t[sc.key] = !!srv[sc.key];
+      setToggles(t);
+      setSource(srv['scraper.movie.r18dev.source'] || 'dump+html');
+      setFbGuru(srv['web.scrape.javguru.fallback'] == null ? true : !!srv['web.scrape.javguru.fallback']);
+      setFbJavdb(srv['web.scrape.javdb.fallback'] == null ? true : !!srv['web.scrape.javdb.fallback']);
+    } catch {
+      setToggles({});
+    }
+  }, []);
+
+  const loadDump = useCallback(async () => {
+    try {
+      const s = await api('/api/r18dump/status');
+      setDump(s);
+      return s;
+    } catch (e) {
+      setDump({ error: e.message });
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSettings();
+    loadDump();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [loadSettings, loadDump]);
+
+  const post = async (update, label) => {
+    try {
+      await api('/api/settings', { method: 'POST', body: { settings: update } });
+      addToast?.(label || 'Saved', 'ok');
+    } catch (e) {
+      addToast?.(`Failed to save: ${e.message}`, 'error');
+      loadSettings();
+    }
+  };
+
+  const onToggleScraper = (key, checked) => {
+    setToggles(p => ({ ...p, [key]: checked }));
+    post({ [key]: checked });
+  };
+  const onSource = (v) => { setSource(v); post({ 'scraper.movie.r18dev.source': v }, `r18.dev source: ${v}`); };
+  const onFbGuru = (v) => { setFbGuru(v); post({ 'web.scrape.javguru.fallback': v }); };
+  const onFbJavdb = (v) => { setFbJavdb(v); post({ 'web.scrape.javdb.fallback': v }); };
+
+  const onRebuild = async () => {
+    setRebuilding(true);
+    try {
+      const res = await api('/api/r18dump/refresh', { method: 'POST' });
+      if (res.jobId) onJob?.(res.jobId);
+      addToast?.('r18.dev cache rebuild started', 'ok');
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
+        const s = await loadDump();
+        if (!s || !s.building) {
+          clearInterval(pollRef.current); pollRef.current = null;
+          setRebuilding(false);
+        }
+      }, 2500);
+    } catch (e) {
+      addToast?.(`Rebuild failed to start: ${e.message}`, 'error');
+      setRebuilding(false);
+    }
+  };
+
+  const building = rebuilding || dump?.building;
+  const dumpDot =
+    dump == null ? 'var(--text-muted)' :
+    building     ? 'var(--text-muted)' :
+    dump.error   ? 'var(--red)' :
+    (!dump.exists || dump.dumpDate == null) ? 'var(--red)' :
+    dump.stale   ? 'var(--red)' :
+                   'var(--green)';
+  const dumpText =
+    dump == null ? 'checking…' :
+    building     ? 'rebuilding…' :
+    dump.error   ? `status unavailable: ${dump.error}` :
+    (!dump.exists || dump.dumpDate == null) ? 'not built yet' :
+    dump.stale   ? `stale — dump ${dump.dumpDate} (${dump.ageDays}d old)` :
+                   `loaded — dump ${dump.dumpDate} (${dump.ageDays}d old)`;
+
+  const chk = (checked, onChange, label, disabled) => (
+    <label style={{display:'flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-muted)', cursor: disabled ? 'default' : 'pointer', userSelect:'none', opacity: disabled ? 0.5 : 1}}>
+      <input type="checkbox" disabled={disabled} checked={checked} onChange={e=>onChange(e.target.checked)} style={{accentColor:'var(--accent)'}} />
+      {label}
+    </label>
+  );
+
+  return (
+    <div style={{width:'100%', display:'flex', flexDirection:'column', gap:8, paddingTop:6, borderTop:'1px solid var(--border)'}}>
+      <div style={{display:'flex', alignItems:'center', gap:12, flexWrap:'wrap'}}>
+        <span style={S.label}>Scrapers</span>
+
+        <div style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'var(--text-muted)'}}>
+          <span style={{width:8, height:8, borderRadius:'50%', background:dumpDot, flexShrink:0}} />
+          <span>r18.dev cache: {dumpText}</span>
+        </div>
+
+        <button
+          onClick={onRebuild}
+          disabled={building}
+          title="Download the latest weekly r18.dev dump and rebuild the local cache"
+          style={{...S.btn, background: building ? 'var(--surface-3)' : 'var(--accent-dim)', borderColor:'var(--accent)', color:'var(--accent-light)', cursor: building ? 'default' : 'pointer', opacity: building ? 0.6 : 1}}
+        >{building ? '…rebuilding' : '↻ Rebuild now'}</button>
+
+        <div style={{display:'flex', flexDirection:'column', gap:3, minWidth:200}}>
+          <label style={{...S.label, textTransform:'none', fontWeight:400, color:'var(--text-muted)', letterSpacing:0}}>r18.dev source</label>
+          <select value={source} onChange={e=>onSource(e.target.value)} style={{...S.field, fontSize:12}}
+            title="How r18.dev resolves: local dump, dump + live fallback, or live only">
+            <option value="dump">Local dump only</option>
+            <option value="dump+html">Local dump + live fallback</option>
+            <option value="html">Live only</option>
+          </select>
+        </div>
+      </div>
+
+      <div style={{display:'flex', flexWrap:'wrap', gap:'4px 14px', paddingLeft:2}}>
+        {SCRAPER_LIST.map(sc => (
+          <span key={sc.key}>{chk(!!(toggles && toggles[sc.key]), (v)=>onToggleScraper(sc.key, v), sc.label, toggles == null)}</span>
+        ))}
+      </div>
+
+      <div style={{display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', paddingLeft:2}}>
+        <span style={{...S.label, textTransform:'none', fontWeight:400, color:'var(--text-muted)', letterSpacing:0}}>Manual search fallbacks (r18.dev → jav.guru → javdb)</span>
+        {chk(fbGuru, onFbGuru, 'jav.guru')}
+        {chk(fbJavdb, onFbJavdb, 'javdb')}
+      </div>
+
+      <div style={{fontSize:10, color:'var(--text-muted)', paddingLeft:2, fontStyle:'italic', lineHeight:1.5}}>
+        r18.dev now publishes a weekly database dump instead of a live API; Javinizer caches it locally and rebuilds it automatically on startup when stale. The status above shows whether that DB is loaded.
+      </div>
+    </div>
+  );
+}
+
 const TRANSLATE_DEFAULT_FIELDS = ['Title', 'Description', 'Series', 'Maker', 'Actress'];
 
 function TranslatorPanel({ addToast }) {
@@ -1783,6 +1956,7 @@ function SortSettings({ s, set, serverSettings, onSaveDefaults, onResetToSaved, 
         </div>
       </div>
       <JavdbSessionPanel s={s} set={set} addToast={addToast} />
+      <ScrapersPanel addToast={addToast} onJob={onJob} />
       <TranslatorPanel addToast={addToast} />
       <JellyfinPanel addToast={addToast} onJob={onJob} />
       {pickerTarget && (
