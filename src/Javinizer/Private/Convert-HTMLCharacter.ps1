@@ -7,12 +7,11 @@ function Convert-HTMLCharacter {
     )
 
     process {
-        $String = $String -replace '&quot;', '"' `
-            -replace '&amp;', '&' `
-            -replace '&apos;', "'" `
-            -replace '&lt;', '<' `
-            -replace '&gt;', '>' `
-            -replace '&#039;', "'" `
+        # Decode all named + numeric HTML entities in one pass (e.g. &#8211;
+        # en-dash, &quot;, &amp;, &#039;). The old hand-rolled list only covered
+        # a handful and let entities like &#8211; leak into folder/file names
+        # (e.g. "Kasui Jun &#8211; Jun3 ...").
+        $String = [System.Net.WebUtility]::HtmlDecode($String) `
             -replace '#39;s', "'" `
             -replace '※', '.*.' `
             -replace '&#39;', "'" `

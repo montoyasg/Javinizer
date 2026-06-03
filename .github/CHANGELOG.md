@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.12.2] - 2026-06-03
+
+### Fixed
+
+- **HTML entities leaked into scraped titles/folders/files.**
+  `Convert-HTMLCharacter` only decoded a hand-rolled list of entities, so
+  numeric ones like `&#8211;` (en-dash) passed through unchanged —
+  producing names such as `… Kasui Jun &#8211; Jun3 Summer Paradox …`.
+  It now decodes all named + numeric entities in one pass via
+  `[System.Net.WebUtility]::HtmlDecode`, keeping the existing special-case
+  cleanups (※, stray tab/invisible chars). Applies to every scraper.
+- **jav.guru posters failed to load.** jav.guru re-hosts the DMM poster on
+  its own CDN (`cdn.javmiku.com`), which returns HTTP 403 on
+  hotlink/download, so the cover never downloaded. The CDN filename embeds
+  the DMM content_id (e.g. `118abf343pl.jpg`), so `Get-JavGuruCoverUrl`
+  now rebuilds the direct DMM URL
+  (`https://pics.dmm.co.jp/mono/movie/adult/<cid>/<cid>pl.jpg`, verified
+  to serve the large poster). Titles whose jav.guru image is named by DVD
+  ID rather than content_id (some gravure/image-video labels) have no
+  recoverable DMM id and return no cover (instead of a broken 403 URL).
+
+### Note
+
+- r18.dev's local cache is a **weekly** dump, so titles released since the
+  last dump aren't in it yet and fall through to jav.guru — this is
+  expected, not a cache failure. The Scrapers panel shows the loaded dump
+  date; titles resolve from r18.dev once a later weekly dump includes them.
+
 ## [1.12.1] - 2026-06-03
 
 ### Added

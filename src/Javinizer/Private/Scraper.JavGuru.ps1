@@ -121,16 +121,19 @@ function Get-JavGuruActress {
 function Get-JavGuruCoverUrl {
     param ([Parameter(Mandatory, ValueFromPipeline)][Object]$Webrequest)
     process {
-        # The DMM poster re-hosted on jav.guru's CDN, e.g.
-        # https://cdn.javmiku.com/wp-content/uploads/2026/04/118abf343pl.jpg
-        # Require the DMM poster suffix (pl/ps.jpg) so we don't grab the site
-        # logo or sidebar thumbnails.
+        # jav.guru re-hosts the DMM poster on its own CDN, e.g.
+        # https://cdn.javmiku.com/wp-content/uploads/2026/04/118abf343pl.jpg —
+        # but that CDN 403s on hotlink/download, so the poster fails to load.
+        # The filename embeds the DMM content_id (118abf343), so rebuild the
+        # direct DMM poster URL, which serves reliably (and is the large `pl`
+        # variant). The "p[ls].jpg" suffix avoids the site logo / sidebar
+        # thumbnails.
         $m = [regex]::Match($Webrequest.Content,
-            '(?:src|data-src|data-lazy-src)="(https://[^"]+/wp-content/uploads/\d{4}/\d{2}/[^"]*p[ls]\.jpg)"',
+            '/wp-content/uploads/\d{4}/\d{2}/([a-z0-9]+)p[ls]\.jpg',
             [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($m.Success) {
-            # Prefer the large poster.
-            Write-Output ($m.Groups[1].Value -replace 'ps\.jpg$', 'pl.jpg')
+            $contentId = $m.Groups[1].Value.ToLower()
+            Write-Output "https://pics.dmm.co.jp/mono/movie/adult/$contentId/${contentId}pl.jpg"
             return
         }
 
