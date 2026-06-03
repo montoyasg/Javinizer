@@ -117,6 +117,21 @@ function Start-JVWebServer {
         Set-PodeState -Name 'scrapeCache' -Value @{} | Out-Null
         Set-PodeState -Name 'settings' -Value (Get-JVSettings) | Out-Null
 
+        # Auto-refresh the local r18.dev cache on startup when enabled and the
+        # cache is missing or older than the configured max age. Runs as a
+        # background job so the server stays responsive while it downloads and
+        # rebuilds (~250 MiB weekly dump).
+        try {
+            $jvSettings = Get-PodeState -Name 'settings'
+            $autoRefresh = $jvSettings.'database.r18dump.autorefresh'
+            if (($null -eq $autoRefresh -or $autoRefresh) -and (Test-JVR18DumpStale)) {
+                Write-PodeHost "r18.dev cache missing or stale; starting background rebuild..." -ForegroundColor Yellow
+                Start-JVJob -Kind 'r18dump-refresh' -ModulePath $manifest -LibDir $libDir -WorkerFunction 'Invoke-JVR18DumpWorker' | Out-Null
+            }
+        } catch {
+            Write-PodeHost "r18.dev startup refresh check failed: $PSItem" -ForegroundColor DarkYellow
+        }
+
         if ($designPath -and (Test-Path -LiteralPath $designPath)) {
             Add-PodeStaticRoute -Path '/next' -Source $designPath -Defaults @('index.html')
         }

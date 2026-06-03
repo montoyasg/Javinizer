@@ -8,14 +8,27 @@ function Get-JVScrapeNotFoundMessage {
         [object]$Settings
     )
 
-    $fallback = $true
+    $javdbFallback = $true
+    $javguruFallback = $true
     try {
         $flag = $Settings.'web.scrape.javdb.fallback'
-        if ($null -ne $flag) { $fallback = [bool]$flag }
+        if ($null -ne $flag) { $javdbFallback = [bool]$flag }
+    } catch {}
+    try {
+        $gflag = $Settings.'web.scrape.javguru.fallback'
+        if ($null -ne $gflag) { $javguruFallback = [bool]$gflag }
     } catch {}
 
-    if ($fallback) {
-        return "No R18.dev or Javdb match for [$Id]"
+    $sources = @('R18.dev')
+    if ($javguruFallback) { $sources += 'jav.guru' }
+    if ($javdbFallback) { $sources += 'Javdb' }
+
+    $tried = $sources -join ', '
+    if ($javguruFallback -and $javdbFallback) {
+        return "No $tried match for [$Id]"
     }
-    return "No R18.dev match for [$Id]. Enable javdb fallback in settings (web.scrape.javdb.fallback=true)."
+    $disabled = @()
+    if (-not $javguruFallback) { $disabled += 'jav.guru (web.scrape.javguru.fallback)' }
+    if (-not $javdbFallback) { $disabled += 'javdb (web.scrape.javdb.fallback)' }
+    return "No $tried match for [$Id]. Enable more fallbacks in settings: $($disabled -join ', ')."
 }

@@ -1,5 +1,3 @@
-$UserAgent = 'Javinizer (+https://github.com/javinizer/Javinizer)'
-
 function Get-R18DevData {
     [CmdletBinding()]
     param (
@@ -12,13 +10,12 @@ function Get-R18DevData {
         [Parameter()]
         [System.IO.FileInfo]$UncensorCsvPath = (Join-Path -Path ((Get-Item $PSScriptRoot).Parent) -ChildPath 'jvUncensor.csv'),
 
-        # Optional pre-fetched JSON body. When supplied (e.g. by Get-R18DevUrl
-        # which already hit the same combined= endpoint to validate the
-        # dvd_id ↔ content_id mapping), we skip the redundant request — R18
-        # rate-limits tight back-to-back hits to the same URL and used to
-        # silently return an empty body, forcing a javdb fallback for titles
-        # that R18 actually had.
-        [Parameter()]
+        # Pre-fetched API-shaped body. Get-R18DevUrl already resolved the
+        # record from the local r18.dev cache (or the live page) and passes it
+        # through as the pipeline object's 'Response' property, so we reuse it
+        # instead of querying the cache a second time.
+        [Parameter(ValueFromPipelineByPropertyName = $true)]
+        [Alias('Response')]
         [PSObject]$PreFetched
     )
 
@@ -34,28 +31,25 @@ function Get-R18DevData {
         if ($PreFetched) {
             $webRequest = $PreFetched
         } else {
-            if ($Url -like '*id=*') {
-                $contentId = (($Url -split 'id=')[1] -split '\/')[0]
-            } elseif ($Url -like '*combined=*') {
+            # No pre-fetched body: resolve from the local r18.dev cache by the
+            # content_id embedded in the Url.
+            if ($Url -like '*combined=*') {
                 $contentId = (($Url -split 'combined=')[1] -split '\/')[0]
+            } elseif ($Url -like '*id=*') {
+                $contentId = (($Url -split 'id=')[1] -split '\/')[0]
             } else {
-                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Invalid URL provided [$Url]: $PSItem"
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Invalid URL provided [$Url]"
             }
 
-            $apiUrl = "https://r18.dev/videos/vod/movies/detail/-/combined=$($contentId)/json"
-
-            try {
-                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] Performing [GET] on URL [$apiUrl]"
-                $webRequest = (Invoke-WebRequest -Uri $apiUrl -UserAgent $UserAgent -Method Get -Verbose:$false).Content | ConvertFrom-Json
-            } catch {
-                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$($MyInvocation.MyCommand.Name)] Error [GET] on URL [$Url]: $PSItem" -Action 'Continue'
+            if ($contentId) {
+                $webRequest = Get-R18DevDbRecord -ContentId $contentId
             }
         }
 
         # Field extractors below all declare $Webrequest as Mandatory, so a null
-        # response from the R18 API would surface as a terminating
-        # parameter-binding error that bubbles past callers' SilentlyContinue.
-        # Bail out cleanly so the caller can fall back to javdb.
+        # response would surface as a terminating parameter-binding error that
+        # bubbles past callers' SilentlyContinue. Bail out cleanly so the
+        # caller can fall back to javdb.
         if (-not $webRequest) {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$($MyInvocation.MyCommand.Name)] R18Dev returned no body for [$Url]; returning null"
             return

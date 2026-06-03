@@ -26,10 +26,15 @@ function Invoke-JVScrapeCached {
     }
 
     $fallbackEnabled = $true
+    $javguruFallbackEnabled = $true
     if ($Settings) {
         try {
             $flag = $Settings.'web.scrape.javdb.fallback'
             if ($null -ne $flag) { $fallbackEnabled = [bool]$flag }
+        } catch {}
+        try {
+            $gflag = $Settings.'web.scrape.javguru.fallback'
+            if ($null -ne $gflag) { $javguruFallbackEnabled = [bool]$gflag }
         } catch {}
     }
 
@@ -40,14 +45,20 @@ function Invoke-JVScrapeCached {
     if ($Url) {
         if ($Url -match 'javdb\.com') {
             $data = Invoke-JavdbBranch -Url $Url -Settings $Settings -ThrowOnError
+        } elseif ($Url -match 'jav\.guru') {
+            $data = Invoke-JavGuruBranch -Url $Url -ThrowOnError
         } else {
             $data = Get-R18DevData -Url $Url -ErrorAction Stop
         }
     } else {
-        # ID path: R18.dev primary, javdb fallback.
+        # ID path: R18.dev primary, then jav.guru (no login needed), then javdb.
         $urlObj = Get-R18DevUrl -Id $Id -ErrorAction SilentlyContinue
         if ($urlObj) {
             $data = Get-R18DevData -Url $urlObj.Url -PreFetched $urlObj.Response -ErrorAction SilentlyContinue
+        }
+
+        if (-not $data -and $javguruFallbackEnabled) {
+            $data = Invoke-JavGuruBranch -Id $Id
         }
 
         if (-not $data -and $fallbackEnabled) {
@@ -136,6 +147,35 @@ function Invoke-JavdbBranch {
             Write-PodeHost "javdb error: $PSItem" -ForegroundColor Yellow
             if ($ThrowOnError) { throw }
         }
+        return $null
+    }
+}
+
+function Invoke-JavGuruBranch {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$Id,
+
+        [Parameter()]
+        [string]$Url,
+
+        [Parameter()]
+        [switch]$ThrowOnError
+    )
+
+    # jav.guru needs no session/cookies, so this is a straight fetch.
+    try {
+        if ($Url) {
+            return Get-JavGuruData -Url $Url -ErrorAction Stop
+        }
+
+        $urlObj = Get-JavGuruUrl -Id $Id -ErrorAction SilentlyContinue
+        if (-not $urlObj) { return $null }
+        return $urlObj | Get-JavGuruData -ErrorAction Stop
+    } catch {
+        Write-PodeHost "javguru error: $PSItem" -ForegroundColor Yellow
+        if ($ThrowOnError) { throw }
         return $null
     }
 }

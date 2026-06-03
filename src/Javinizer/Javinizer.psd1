@@ -13,7 +13,7 @@
 
     # Version number of this module.
 
-    ModuleVersion     = '1.11.6'
+    ModuleVersion     = '1.12.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @('Core')
@@ -103,6 +103,11 @@
         'Get-MgstageUrl',
         'Get-R18DevData',
         'Get-R18DevUrl',
+        'Update-JVR18Dump',
+        'Get-R18DevDumpStatus',
+        'Test-JVR18DumpStale',
+        'Get-JavGuruData',
+        'Get-JavGuruUrl',
         'Save-JVSettings',
         'Set-JavlibraryOwned',
         'Set-JVEmbyThumbs',

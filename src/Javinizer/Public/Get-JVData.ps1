@@ -49,6 +49,10 @@ function Get-JVData {
         [Boolean]$JavdbZh,
 
         [Parameter(ValueFromPipelineByPropertyName = $true, ParameterSetName = 'Id')]
+        [Alias('scraper.movie.javguru')]
+        [Boolean]$JavGuru,
+
+        [Parameter(ValueFromPipelineByPropertyName = $true, ParameterSetName = 'Id')]
         [Alias('scraper.movie.jav321ja')]
         [Boolean]$Jav321Ja,
 
@@ -143,6 +147,7 @@ function Get-JVData {
             $JavbusZh = $Settings.'scraper.movie.javbuszh'
             $Javdb = $Settings.'scraper.movie.javdb'
             $JavdbZh = $Settings.'scraper.movie.javdbzh'
+            $JavGuru = $Settings.'scraper.movie.javguru'
             $MgstageJa = $Settings.'scraper.movie.mgstageja'
             $Aventertainment = $Settings.'scraper.movie.aventertainment'
             $AventertainmentJa = $Settings.'scraper.movie.aventertainmentja'
@@ -245,6 +250,17 @@ function Get-JVData {
                         $using:R18devUrl | Get-R18DevData -UncensorCsvPath:$using:UncensorCsvPath
                     } elseif ($jvR18devUrl) {
                         $jvR18devUrl | Get-R18DevData -UncensorCsvPath:$using:UncensorCsvPath
+                    }
+                } | Out-Null
+            }
+
+            if ($JavGuru) {
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] [Search - JavGuru]"
+                Start-ThreadJob -Name "jvdata-JavGuru" -ThrottleLimit $throttleLimit -ScriptBlock {
+                    Import-Module $using:jvModulePath
+                    $jvJavGuruUrl = Get-JavGuruUrl -Id $using:Id
+                    if ($jvJavGuruUrl) {
+                        $jvJavGuruUrl | Get-JavGuruData
                     }
                 } | Out-Null
             }

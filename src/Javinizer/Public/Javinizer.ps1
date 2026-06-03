@@ -369,6 +369,9 @@ function Javinizer {
         [Switch]$JavdbZh,
 
         [Parameter(ParameterSetName = 'Info')]
+        [Switch]$JavGuru,
+
+        [Parameter(ParameterSetName = 'Info')]
         [Switch]$Jav321Ja,
 
         [Parameter(ParameterSetName = 'Info')]
@@ -728,7 +731,7 @@ function Javinizer {
                     $data = Get-JVData -Id $Find -Javlibrary:$Javlibrary -JavlibraryJa:$JavlibraryJa -JavlibraryZh:$JavlibraryZh -Dmm:$Dmm `
                         -DmmJa:$DmmJa -R18Dev:$R18Dev -Javbus:$Javbus -JavbusJa:$JavbusJa -JavbusZh:$JavbusZh -Jav321Ja:$Jav321Ja -JavlibraryBaseUrl $Settings.'javlibrary.baseurl' `
                         -MgstageJa:$MgstageJa -Aventertainment:$Aventertainment -AventertainmentJa:$AventertainmentJa -Tokyohot:$Tokyohot -TokyohotJa:$TokyohotJa -TokyohotZh:$TokyohotZh -UncensorCsvPath $uncensorCsvPath -Strict:$Strict `
-                        -Javdb:$Javdb -JavdbZh:$JavdbZh -JavdbSession:$Settings.'javdb.cookie.session' -AllResults:$AllResults
+                        -Javdb:$Javdb -JavdbZh:$JavdbZh -JavGuru:$JavGuru -JavdbSession:$Settings.'javdb.cookie.session' -AllResults:$AllResults
                 }
 
                 if ($Aggregated) {

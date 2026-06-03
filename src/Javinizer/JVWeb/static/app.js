@@ -742,6 +742,142 @@
         }
     }
 
+    const SCRAPERS = [
+        { key: 'scraper.movie.r18dev', label: 'r18.dev' },
+        { key: 'scraper.movie.javguru', label: 'jav.guru' },
+        { key: 'scraper.movie.dmm', label: 'DMM' },
+        { key: 'scraper.movie.dmmja', label: 'DMM (JA)' },
+        { key: 'scraper.movie.javlibrary', label: 'JavLibrary' },
+        { key: 'scraper.movie.javlibraryja', label: 'JavLibrary (JA)' },
+        { key: 'scraper.movie.javlibraryzh', label: 'JavLibrary (ZH)' },
+        { key: 'scraper.movie.javbus', label: 'JavBus' },
+        { key: 'scraper.movie.javbusja', label: 'JavBus (JA)' },
+        { key: 'scraper.movie.javbuszh', label: 'JavBus (ZH)' },
+        { key: 'scraper.movie.javdb', label: 'JavDB' },
+        { key: 'scraper.movie.javdbzh', label: 'JavDB (ZH)' },
+        { key: 'scraper.movie.jav321ja', label: 'Jav321 (JA)' },
+        { key: 'scraper.movie.mgstageja', label: 'MGStage (JA)' },
+        { key: 'scraper.movie.aventertainment', label: 'AVEntertainment' },
+        { key: 'scraper.movie.aventertainmentja', label: 'AVEntertainment (JA)' },
+        { key: 'scraper.movie.tokyohot', label: 'Tokyo Hot' },
+        { key: 'scraper.movie.tokyohotja', label: 'Tokyo Hot (JA)' },
+        { key: 'scraper.movie.tokyohotzh', label: 'Tokyo Hot (ZH)' },
+    ];
+
+    async function loadScraperSettings() {
+        const grid = qs('#scrapers-grid');
+        if (!grid) return;
+        try {
+            const res = await api('/api/settings');
+            const s = res.settings || {};
+            grid.innerHTML = '';
+            for (const sc of SCRAPERS) {
+                const row = document.createElement('div');
+                row.className = 'checkbox-row';
+                const label = document.createElement('label');
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.dataset.key = sc.key;
+                input.checked = !!s[sc.key];
+                label.appendChild(input);
+                label.appendChild(document.createTextNode(' ' + sc.label));
+                row.appendChild(label);
+                grid.appendChild(row);
+            }
+            const src = qs('#r18dev-source');
+            if (src) src.value = s['scraper.movie.r18dev.source'] || 'dump+html';
+            // Manual-search fallback toggles (missing key => default enabled).
+            const fbGuru = qs('#fallback-javguru');
+            if (fbGuru) fbGuru.checked = (s['web.scrape.javguru.fallback'] == null) ? true : !!s['web.scrape.javguru.fallback'];
+            const fbJavdb = qs('#fallback-javdb');
+            if (fbJavdb) fbJavdb.checked = (s['web.scrape.javdb.fallback'] == null) ? true : !!s['web.scrape.javdb.fallback'];
+        } catch (e) {
+            grid.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+        }
+    }
+
+    async function saveScrapers() {
+        const updates = {};
+        qsa('#scrapers-grid input[type="checkbox"]').forEach(cb => {
+            updates[cb.dataset.key] = cb.checked;
+        });
+        const src = qs('#r18dev-source');
+        if (src) updates['scraper.movie.r18dev.source'] = src.value;
+        const fbGuru = qs('#fallback-javguru');
+        if (fbGuru) updates['web.scrape.javguru.fallback'] = fbGuru.checked;
+        const fbJavdb = qs('#fallback-javdb');
+        if (fbJavdb) updates['web.scrape.javdb.fallback'] = fbJavdb.checked;
+        try {
+            await api('/api/settings', { method: 'POST', body: { settings: updates } });
+            toast('Scrapers updated', 'ok');
+            qs('#modal-scrapers').hidden = true;
+        } catch (e) {
+            toast('Failed to save scrapers: ' + e.message, 'error');
+        }
+    }
+
+    async function loadR18DumpStatus() {
+        const el = qs('#r18dump-status');
+        if (!el) return;
+        try {
+            const s = await api('/api/r18dump/status');
+            if (s.building) {
+                el.textContent = 'r18.dev cache: rebuilding…';
+                el.style.color = '';
+            } else if (!s.exists || s.dumpDate == null) {
+                el.textContent = 'r18.dev cache: not built yet';
+                el.style.color = 'var(--red, #c55)';
+            } else if (s.stale) {
+                el.textContent = `r18.dev cache: stale — dump ${s.dumpDate} (${s.ageDays}d old)`;
+                el.style.color = 'var(--red, #c55)';
+            } else {
+                el.textContent = `r18.dev cache: up to date — dump ${s.dumpDate} (${s.ageDays}d old)`;
+                el.style.color = 'var(--ok, #6a6)';
+            }
+            return s;
+        } catch (e) {
+            el.textContent = 'r18.dev cache status unavailable';
+            el.style.color = 'var(--red, #c55)';
+        }
+    }
+
+    async function refreshR18Dump() {
+        const btn = qs('#btn-r18dump-refresh');
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Rebuilding…';
+        try {
+            const res = await api('/api/r18dump/refresh', { method: 'POST' });
+            const jobId = res.jobId;
+            const poll = async () => {
+                try {
+                    const job = await api(`/api/jobs/${jobId}`);
+                    const msg = (job.progress && job.progress.message) ? job.progress.message : job.status;
+                    const el = qs('#r18dump-status');
+                    if (el) { el.textContent = `r18.dev cache: ${msg}`; el.style.color = ''; }
+                    if (job.status === 'running') {
+                        setTimeout(poll, 1500);
+                    } else {
+                        btn.disabled = false;
+                        btn.textContent = original;
+                        if (job.status === 'done') { toast('r18.dev cache rebuilt', 'ok'); }
+                        else { toast('r18.dev rebuild ' + job.status + (job.error ? ': ' + job.error : ''), 'error'); }
+                        loadR18DumpStatus();
+                    }
+                } catch (e) {
+                    btn.disabled = false;
+                    btn.textContent = original;
+                    loadR18DumpStatus();
+                }
+            };
+            setTimeout(poll, 1000);
+        } catch (e) {
+            toast('r18.dev rebuild failed to start: ' + e.message, 'error');
+            btn.disabled = false;
+            btn.textContent = original;
+        }
+    }
+
     function bind() {
         renderAggGrid();
 
@@ -870,6 +1006,15 @@
         qs('#btn-sort-all').addEventListener('click', sortAllFromTree);
 
         qs('#btn-javdb-refresh').addEventListener('click', refreshJavdbSession);
+
+        qs('#btn-scrapers').addEventListener('click', () => {
+            qs('#scrapers-status').textContent = '';
+            qs('#modal-scrapers').hidden = false;
+            loadScraperSettings();
+            loadR18DumpStatus();
+        });
+        qs('#btn-scrapers-save').addEventListener('click', saveScrapers);
+        qs('#btn-r18dump-refresh').addEventListener('click', refreshR18Dump);
 
         qs('#btn-screens').addEventListener('click', () => {
             const d = state.scrapedData;

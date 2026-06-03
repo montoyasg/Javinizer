@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.12.0] - 2026-06-03
+
+### Fixed
+
+- **r18.dev scraper stopped returning data.** r18.dev retired its public
+  JSON detail API and put the whole site behind Cloudflare, so the
+  endpoints Javinizer relied on
+  (`/videos/vod/movies/detail/-/dvd_id=…/json` and the `combined=…`
+  follow-up) now return 404/403 even to a real browser. r18.dev was the
+  #1 priority source for ~14 metadata fields (English titles, genres,
+  actress romaji, covers, screenshots), so scrapes silently lost all of
+  that and fired two doomed HTTP requests each. The scraper has been
+  re-architected around r18.dev's sanctioned replacement: the weekly,
+  public-domain (CC0) PostgreSQL dump at <https://r18.dev/dumps>.
+
+### Added
+
+- **Local r18.dev cache built from the weekly dump.** New Python helpers
+  (`src/Javinizer/Misc/r18dump_import.py`, `r18dump_query.py`, stdlib
+  only) download the dump, import it into a local SQLite database
+  (~1.9M titles), and answer lookups offline by reconstructing the exact
+  JSON shape the old API returned — so the existing field extractors and
+  metadata-priority logic are unchanged. English titles/genres are
+  restored via the dump's `machine_translation` table; gallery URLs and
+  DMM cover/actress images are reconstructed to full URLs.
+  - `Get-R18DevUrl` / `Get-R18DevData` now resolve from the cache
+    (`Get-R18DevDbRecord`) instead of the dead API.
+  - `scraper.movie.r18dev.source` selects `dump`, `dump+html` (default)
+    or `html`. For titles newer than the last dump, a best-effort live
+    fallback (`Get-R18DevHtmlData`) reuses the Playwright/Chromium infra
+    already used for JavDB.
+  - `Update-JVR18Dump` rebuilds the cache; the JVWeb server
+    auto-refreshes it on startup when missing or older than
+    `database.r18dump.maxagedays` (default 7,
+    `database.r18dump.autorefresh`). A `GET /api/r18dump/status` /
+    `POST /api/r18dump/refresh` pair backs a status line and **Rebuild
+    now** button in the new Scrapers panel.
+- **jav.guru scraper.** New `Get-JavGuruUrl` / `Get-JavGuruData` /
+  `Scraper.JavGuru.ps1`, wired into `Get-JVData`, the `Javinizer -Find`
+  CLI, and the metadata-priority lists (`scraper.movie.javguru`, default
+  off). Fetches over plain HTTP with a Playwright fallback on a
+  Cloudflare 403.
+- **Web Scrapers panel.** A new modal in the JVWeb UI to enable/disable
+  each scraper, pick the r18.dev source mode, and see/rebuild the
+  r18.dev cache. The `scraper.movie.*` keys are now editable from the UI
+  (previously settings-only).
+- **jav.guru in manual search.** Manual search now resolves an ID as
+  r18.dev → jav.guru → javdb, with UI toggles for both fallbacks
+  (`web.scrape.javguru.fallback`, and `web.scrape.javdb.fallback` which
+  previously had no UI). Pasting a `jav.guru` detail URL is supported.
+
 ## [1.11.6] - 2026-05-01
 
 ### Fixed

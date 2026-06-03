@@ -1,19 +1,42 @@
-$UserAgent = 'Javinizer (+https://github.com/javinizer/Javinizer)'
-
 function Get-R18DevUrl {
+    <#
+    .SYNOPSIS
+        Resolve an r18.dev record for a movie ID.
+    .DESCRIPTION
+        r18.dev retired its public JSON API and now ships data as a weekly
+        SQLite-importable dump. This looks the ID up in the local cache
+        (Get-R18DevDbRecord) and, for titles newer than the last dump, can
+        fall back to scraping the live r18.dev detail page through the shared
+        Chromium fetch (Get-R18DevHtmlRecord). It returns the same
+        { Id, Title, Url, Response } shape callers already expect, where
+        Response is the reconstructed API-shaped object that Get-R18DevData
+        consumes via -PreFetched.
+
+        The -Source switch (or the 'scraper.movie.r18dev.source' setting)
+        selects 'dump', 'dump+html' (default) or 'html'.
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
         [String]$Id,
 
         [Parameter()]
-        [Switch]$Strict
+        [Switch]$Strict,
+
+        [Parameter()]
+        [ValidateSet('dump', 'dump+html', 'html')]
+        [String]$Source,
+
+        [Parameter()]
+        [String]$DbPath
     )
 
     process {
-        $searchUrl = "https://r18.dev/videos/vod/movies/detail/-/dvd_id=$Id/json"
+        if (-not $Source) {
+            $Source = Get-R18DevSource
+        }
 
-        # If contentId is given, convert it back to standard movie ID to validate
+        # If a content Id is given, convert it back to standard movie Id form.
         if (!($Strict)) {
             if ($Id -match '(?:\d{1,5})?([a-zA-Z]{1,10}|[tT]28|[rR]18)(\d{5})') {
                 Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Content ID [$Id] detected"
@@ -27,58 +50,74 @@ function Get-R18DevUrl {
             }
         }
 
-        # Convert the movie Id (ID-###) to content Id (ID00###) to match dmm naming standards
-        if ($Id -match '([a-zA-Z|tT28|rR18]+-\d+z{0,1}Z{0,1}e{0,1}E{0,1})') {
-            $splitId = $Id -split '-'
-            $contentId = $splitId[0] + $splitId[1].PadLeft(5, '0')
+        # The dump stores dvd_id without zero-padding (e.g. "ABF-309"), so
+        # strip padding from the numeric suffix for the lookup. Callers may
+        # pass "ABF-00343" or "ABF-343"; both normalize to "ABF-343".
+        $lookupId = ($Id -replace '-0*(\d)', '-$1').ToUpper().Trim()
+
+        $webRequest = $null
+
+        if ($Source -ne 'html') {
+            $webRequest = Get-R18DevDbRecord -DvdId $lookupId -DbPath $DbPath
         }
 
-        # Try matching the video with Video ID
-        try {
-            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Performing [GET] on URL [$searchUrl]"
-            $webRequest = Invoke-WebRequest -Uri $searchUrl -UserAgent $UserAgent -Method Get -Verbose:$false | ConvertFrom-Json
-        } catch {
-            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Error -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Error occured on [GET] on URL [$searchUrl]: $PSItem" -Action 'Continue'
-        }
-
-        if ($webRequest.content_id) {
-            $testUrl = "https://r18.dev/videos/vod/movies/detail/-/combined=$($webRequest.content_id)/json"
-
-            try {
-                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Performing [GET] on Uri [$testUrl]"
-                $webRequest = Invoke-WebRequest -Uri $testUrl -UserAgent $UserAgent -Method Get -Verbose:$false | ConvertFrom-Json
-            } catch {
-                $webRequest = $null
-            }
-
-            if ($null -ne $webRequest) {
-                $resultId = Get-R18DevId -WebRequest $webRequest
-                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Result is [$resultId]"
-                # Loose comparison: strip leading zeros from the numeric suffix and
-                # uppercase. R18.dev sometimes returns dvd_id as "ABF-00343" while
-                # callers pass "ABF-343" (or vice-versa); a strict -eq here was
-                # silently dropping legitimate hits and forcing javdb fallback.
-                $normResult = ($resultId -replace '-0*(\d)', '-$1').ToUpper().Trim()
-                $normInput = ($Id -replace '-0*(\d)', '-$1').ToUpper().Trim()
-                if ($normResult -eq $normInput) {
-                    $resultObject = [PSCustomObject]@{
-                        Id       = $resultId
-                        Title    = Get-R18DevTitle -Webrequest $webRequest
-                        Url      = $testUrl
-                        Response = $webRequest
-                    }
-                } else {
-                    Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] R18Dev dvd_id [$resultId] (norm [$normResult]) does not match input (norm [$normInput]); falling through"
+        if ($null -eq $webRequest -and $Source -ne 'dump') {
+            if (Get-Command Get-R18DevHtmlRecord -ErrorAction SilentlyContinue) {
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$lookupId] [$($MyInvocation.MyCommand.Name)] not in cache; trying live r18.dev page"
+                try {
+                    $webRequest = Get-R18DevHtmlRecord -Id $lookupId
+                } catch {
+                    Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$lookupId] [$($MyInvocation.MyCommand.Name)] live r18.dev fetch failed: $PSItem"
                 }
-            } else {
-                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$Id] [$($MyInvocation.MyCommand.Name)] not matched on R18Dev"
-                return
             }
+        }
 
-            Write-Output $resultObject
-        } else {
+        if ($null -eq $webRequest) {
             Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Warning -Message "[$Id] [$($MyInvocation.MyCommand.Name)] not matched on R18Dev"
             return
         }
+
+        $resultId = Get-R18DevId -WebRequest $webRequest
+        Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] Result is [$resultId]"
+
+        # Loose comparison: strip leading zeros from the numeric suffix and
+        # uppercase. The dump/site sometimes returns dvd_id as "ABF-00343"
+        # while callers pass "ABF-343" (or vice-versa); a strict -eq here
+        # would silently drop legitimate hits.
+        $normResult = ($resultId -replace '-0*(\d)', '-$1').ToUpper().Trim()
+        if ($normResult -ne $lookupId) {
+            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] R18Dev dvd_id [$resultId] (norm [$normResult]) does not match input (norm [$lookupId]); falling through"
+            return
+        }
+
+        $contentId = Get-R18DevContentId -WebRequest $webRequest
+        $resultObject = [PSCustomObject]@{
+            Id       = $resultId
+            Title    = Get-R18DevTitle -Webrequest $webRequest
+            Url      = "https://r18.dev/videos/vod/movies/detail/-/combined=$contentId/json"
+            Response = $webRequest
+        }
+
+        Write-Output $resultObject
     }
+}
+
+function Get-R18DevSource {
+    <#
+    .SYNOPSIS
+        Read the configured r18.dev resolution mode.
+    .DESCRIPTION
+        Returns 'dump', 'dump+html' or 'html' from the
+        'scraper.movie.r18dev.source' setting; defaults to 'dump+html'.
+    #>
+    [CmdletBinding()]
+    param ()
+
+    try {
+        $settings = Get-JVSettings -ErrorAction SilentlyContinue
+        $value = $settings.'scraper.movie.r18dev.source'
+        if ($value -in @('dump', 'dump+html', 'html')) { return $value }
+    } catch {}
+
+    return 'dump+html'
 }

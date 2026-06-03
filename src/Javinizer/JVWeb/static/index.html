@@ -83,6 +83,10 @@
                 </div>
                 <div class="status-line" id="javdb-session-status" style="font-size: 11px; opacity: 0.75; margin-top: 4px;">—</div>
 
+                <div class="button-row" style="margin-top: 8px;">
+                    <button id="btn-scrapers" class="full-btn" title="Choose which scrapers to use and manage the r18.dev cache.">&#9881;&#65039; SCRAPERS</button>
+                </div>
+
                 <div class="checkbox-row" style="margin-top: 8px;">
                     <label title="Translate Japanese fields (description by default) in scraped results. Set module/language/fields in jvSettings.json."><input type="checkbox" id="flag-translate" /> Translator</label>
                 </div>
@@ -163,6 +167,46 @@
                 <button class="icon-btn modal-close" data-close="modal-json">&times;</button>
             </div>
             <pre id="json-body" class="json-body"></pre>
+        </div>
+    </div>
+
+    <div class="modal" id="modal-scrapers" hidden>
+        <div class="modal-inner narrow">
+            <div class="modal-header">
+                <span>Scrapers</span>
+                <button class="icon-btn modal-close" data-close="modal-scrapers">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="scrapers-grid"></div>
+
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <label class="field-label">r18.dev source</label>
+                    <select id="r18dev-source">
+                        <option value="dump">Local dump only</option>
+                        <option value="dump+html">Local dump + live fallback</option>
+                        <option value="html">Live only</option>
+                    </select>
+                    <div class="status-line" id="r18dump-status" style="font-size: 11px; opacity: 0.75; margin-top: 6px;">—</div>
+                    <div class="button-row" style="margin-top: 6px;">
+                        <button id="btn-r18dump-refresh" class="full-btn">&#8635; REBUILD r18.dev CACHE</button>
+                    </div>
+                </div>
+
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <label class="field-label">Manual search fallbacks (tried in order when r18.dev has no match)</label>
+                    <div class="checkbox-row">
+                        <label title="When manual search finds no r18.dev match, try jav.guru next (no login required)."><input type="checkbox" id="fallback-javguru" /> jav.guru fallback</label>
+                    </div>
+                    <div class="checkbox-row">
+                        <label title="After jav.guru, fall back to javdb (requires a javdb session)."><input type="checkbox" id="fallback-javdb" /> javdb fallback</label>
+                    </div>
+                </div>
+
+                <div class="button-row" style="margin-top: 10px;">
+                    <button id="btn-scrapers-save" class="full-btn">Save</button>
+                </div>
+                <div id="scrapers-status" class="status-line"></div>
+            </div>
         </div>
     </div>
 
