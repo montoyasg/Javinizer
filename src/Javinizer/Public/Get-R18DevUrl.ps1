@@ -115,6 +115,16 @@ function Get-R18DevUrl {
             return
         }
 
+        # Normalize the result id to Javinizer's standard 3-digit zero-padding
+        # (matching Convert-JVTitle / Scraper.Dmm). r18.dev's dvd_id -- and the
+        # zero-stripped lookup we inject on the live path -- drop the padding, so
+        # without this NPJH-003 would sort as NPJH-3. Pad the numeric run up to 3
+        # digits; never truncate longer numbers, and keep any trailing letter
+        # suffix (e.g. -123R).
+        if ($resultId -match '^(.+?)-0*(\d+)([A-Za-z]*)$') {
+            $resultId = "$($Matches[1])-$($Matches[2].PadLeft(3, '0'))$($Matches[3])"
+        }
+
         $resultObject = [PSCustomObject]@{
             Id       = $resultId
             Title    = Get-R18DevTitle -Webrequest $webRequest

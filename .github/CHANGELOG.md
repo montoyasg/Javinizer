@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.12.7] - 2026-06-04
+
+### Fixed
+
+- **r18.dev dropped leading zeros from the movie id** (e.g. `NPJH-003` sorted as
+  `NPJH-3`). `Get-R18DevUrl` zero-strips the id for the lookup and returned that
+  stripped form as the result; the dump stores dvd_ids unpadded too. The result
+  id is now normalized to Javinizer's standard 3-digit zero-padding (matching
+  `Convert-JVTitle`/`Scraper.Dmm`) — the numeric run is padded up to 3 digits,
+  longer numbers are never truncated, and any trailing letter suffix (e.g.
+  `-123R`) is preserved.
+
 ## [1.12.6] - 2026-06-04
 
 ### Fixed
