@@ -147,12 +147,34 @@ public class ExtendedWebClient : WebClient {
         }
 
         function Set-JVDestinationOwnership {
-            param([string]$Path)
+            param(
+                [string]$Path,
+                [string]$Root
+            )
             if (-not $IsLinux) { return }
             if (-not $env:PUID -or -not $env:PGID) { return }
             if (-not (Test-Path -LiteralPath $Path)) { return }
+            $owner = "$($env:PUID):$($env:PGID)"
             try {
-                & chown -R "$($env:PUID):$($env:PGID)" $Path 2>$null
+                # The leaf movie folder and everything inside it.
+                & chown -R $owner $Path 2>$null
+
+                # New-Item creates the actress/intermediate folders too, but as
+                # the container's root user -- and "chown -R" on the leaf cannot
+                # reach its ancestors, so those stay root:root and are not
+                # writable over the share. Walk up from the leaf and chown each
+                # directory until (but not including) the destination root.
+                if ($Root) {
+                    $rootFull = (Resolve-Path -LiteralPath $Root -ErrorAction SilentlyContinue).Path
+                    if ($rootFull) {
+                        $rootFull = $rootFull.TrimEnd('/')
+                        $cur = Split-Path -Parent $Path
+                        while ($cur -and $cur.TrimEnd('/').Length -gt $rootFull.Length -and $cur.TrimEnd('/') -ne $rootFull) {
+                            & chown $owner $cur 2>$null
+                            $cur = Split-Path -Parent $cur
+                        }
+                    }
+                }
             } catch {
                 Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug `
                     -Message "[$($MyInvocation.MyCommand.Name)] chown skipped for [$Path]: $PSItem"
@@ -571,7 +593,7 @@ public class ExtendedWebClient : WebClient {
         }
 
         if ($sortData -and $sortData.FolderPath) {
-            Set-JVDestinationOwnership -Path $sortData.FolderPath
+            Set-JVDestinationOwnership -Path $sortData.FolderPath -Root $DestinationPath.FullName
         }
     }
 }

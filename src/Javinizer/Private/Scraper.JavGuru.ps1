@@ -135,8 +135,23 @@ function Get-JavGuruCoverUrl {
             [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($m.Success) {
             $contentId = $m.Groups[1].Value.ToLower()
-            Write-Output "https://pics.dmm.co.jp/mono/movie/adult/$contentId/${contentId}pl.jpg"
-            return
+            # DMM hosts covers in two separate trees and any given title lives in
+            # exactly one: physical/"mono" goods under mono/movie/adult, digital
+            # releases under digital/video. Guessing wrong returns a 302 to a tiny
+            # "now printing" placeholder (the blank poster users saw). Probe and
+            # emit whichever tree serves a real image. Digital-only labels
+            # (FALENO/FNS, gravure OAE) live under digital/video; mainstream DVDs
+            # (SSIS/STARS/ABF) under mono -- so try digital first, then mono.
+            foreach ($url in @(
+                    "https://pics.dmm.co.jp/digital/video/$contentId/${contentId}pl.jpg",
+                    "https://pics.dmm.co.jp/mono/movie/adult/$contentId/${contentId}pl.jpg")) {
+                if (Test-JVDmmImageUrl -Uri $url) {
+                    Write-Output $url
+                    return
+                }
+            }
+            # Neither tree has the cover yet (genuinely not published); fall
+            # through to the Open Graph image below.
         }
 
         # Fallback: Open Graph image.
@@ -144,5 +159,26 @@ function Get-JavGuruCoverUrl {
             '<meta[^>]+property="og:image"[^>]+content="([^"]+)"',
             [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($og.Success -and $og.Groups[1].Value) { Write-Output $og.Groups[1].Value }
+    }
+}
+
+function Test-JVDmmImageUrl {
+    <#
+    .SYNOPSIS
+        True only when the URL serves a real image (HTTP 200).
+    .DESCRIPTION
+        DMM answers a wrong-tree or not-yet-published cover with a 302 redirect
+        to a tiny "now printing" placeholder. A HEAD with redirects disabled
+        returns 200 for a real image and throws/!=200 for the placeholder, so a
+        302 (or any error/timeout) is treated as a miss.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][String]$Uri)
+    try {
+        $resp = Invoke-WebRequest -Uri $Uri -Method Head -MaximumRedirection 0 `
+            -TimeoutSec 10 -SkipHttpErrorCheck -ErrorAction Stop -Verbose:$false
+        return ($resp.StatusCode -eq 200)
+    } catch {
+        return $false
     }
 }

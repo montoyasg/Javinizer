@@ -103,6 +103,18 @@ function Get-R18DevUrl {
         }
 
         $contentId = Get-R18DevContentId -WebRequest $webRequest
+
+        # Backstop: the content_id carries the true studio+number. Reject any
+        # record whose number does not match the request -- catches r18.dev's
+        # fuzzy dvd_id matches (MIDA-660 -> mida00066) on any path (dump, json,
+        # html) even if the live repair in Get-R18DevJsonRecord did not apply.
+        $reqNum = [regex]::Match($lookupId, '^[A-Za-z]+-0*(\d+)$')
+        $cidNum = [regex]::Match([string]$contentId, '(\d+)$')
+        if ($reqNum.Success -and $cidNum.Success -and [int]$reqNum.Groups[1].Value -ne [int]$cidNum.Groups[1].Value) {
+            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$Id] [$($MyInvocation.MyCommand.Name)] R18Dev content_id [$contentId] number does not match requested [$lookupId]; discarding"
+            return
+        }
+
         $resultObject = [PSCustomObject]@{
             Id       = $resultId
             Title    = Get-R18DevTitle -Webrequest $webRequest

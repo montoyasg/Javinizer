@@ -48,41 +48,15 @@ function Apply-TranslationToScrapeData {
                 if ($t) {
                     $Data.$propName = @($t -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
                 }
-            } elseif ($key -eq 'actress' -and $null -ne $orig) {
-                # JavDB returns Actress as either a single PSCustomObject or an array.
-                # @() normalizes so the loop handles both cases identically.
-                foreach ($act in @($orig)) {
-                    if ($null -eq $act) { continue }
-                    if ($act.PSObject.Properties.Name -notcontains 'JapaneseName') { continue }
-                    $jn = $act.JapaneseName
-                    if ([string]::IsNullOrWhiteSpace($jn)) { continue }
-                    $t = Get-TranslatedString -String $jn -Language $language -Module $module -TranslateDeeplApiKey $deeplKey
-                    if (-not ($t -and ($t -is [string]) -and $t.Trim() -ne '' -and $t.Trim() -ne $jn)) { continue }
-                    $translated = $t.Trim()
-
-                    # Split into LastName/FirstName. Google's output order depends on the
-                    # original's script: katakana (Western stage names) → Western order
-                    # (First Last); kanji+hiragana (pure Japanese) → Japanese order (Last First).
-                    $hasKatakana = $jn -match '[ァ-ヿｦ-ﾟ]'
-                    $parts = @($translated -split '\s+' | Where-Object { $_ -ne '' })
-                    $firstName = $null
-                    $lastName  = $null
-                    if ($parts.Count -eq 1) {
-                        $firstName = $parts[0]
-                    } elseif ($hasKatakana) {
-                        $firstName = $parts[0]
-                        $lastName  = ($parts[1..($parts.Count - 1)] -join ' ')
-                    } else {
-                        $lastName  = $parts[0]
-                        $firstName = ($parts[1..($parts.Count - 1)] -join ' ')
-                    }
-
-                    if ($act.PSObject.Properties.Name -contains 'FirstName') { $act.FirstName = $firstName }
-                    else { Add-Member -InputObject $act -NotePropertyName 'FirstName' -NotePropertyValue $firstName -Force }
-                    if ($act.PSObject.Properties.Name -contains 'LastName') { $act.LastName = $lastName }
-                    else { Add-Member -InputObject $act -NotePropertyName 'LastName' -NotePropertyValue $lastName -Force }
-                    $act.JapaneseName = $translated
-                }
+            } elseif ($key -eq 'actress') {
+                # Intentionally NOT translated. Actress names already arrive
+                # romanized from the scrapers (r18.dev name_romaji, etc.).
+                # Machine-translating the Japanese name corrupts it: given names
+                # written in hiragana that double as particles come back as
+                # English phrases -- 初美なのか -> "Is it Hatsumi?", 桃乃木かな ->
+                # "Is it Momonogi?" -- which then became the actress/folder name.
+                # Leave the scraped (already-romanized) name untouched.
+                continue
             } elseif ($orig -is [string]) {
                 $t = Get-TranslatedString -String $orig -Language $language -Module $module -TranslateDeeplApiKey $deeplKey
                 if ($t -and ($t -is [string]) -and $t.Trim() -ne '') {

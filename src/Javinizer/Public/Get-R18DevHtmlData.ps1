@@ -10,6 +10,44 @@ $script:R18DevUserAgents = @(
     'Javinizer'
 )
 
+function Resolve-R18DevContentId {
+    <#
+    .SYNOPSIS
+        Guard against r18.dev's dvd_id endpoint fuzzy-matching the wrong title.
+    .DESCRIPTION
+        The dvd_id lookup endpoint sometimes returns a different number within
+        the same studio (MIDA-660 -> mida00066, IPZZ-860 -> ipzz00086 -- it
+        drops the trailing zero). The combined endpoint then returns that wrong
+        movie, and because it reports dvd_id:null we cannot validate on dvd_id.
+        Given the requested dvd_id and the content_id the lookup returned, when
+        their trailing numbers disagree this rebuilds the content_id with the
+        requested number (preserving the studio/floor prefix and zero-pad
+        width) so the caller fetches the correct record. Returns the candidate
+        unchanged when the requested id is not a clean <letters>-<number> form
+        (e.g. T28-xxx), so exotic ids are never mangled.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [String]$RequestedId,
+
+        [Parameter(Mandatory = $true)]
+        [String]$CandidateContentId
+    )
+
+    $req = [regex]::Match($RequestedId, '^([A-Za-z]+)-0*(\d+)$')
+    $cid = [regex]::Match($CandidateContentId, '(\d+)$')
+    if (-not $req.Success -or -not $cid.Success) { return $CandidateContentId }
+
+    if ([int]$req.Groups[2].Value -eq [int]$cid.Groups[1].Value) {
+        return $CandidateContentId
+    }
+
+    $digits    = $cid.Groups[1].Value
+    $newDigits = ([string][int]$req.Groups[2].Value).PadLeft($digits.Length, '0')
+    return $CandidateContentId.Substring(0, $CandidateContentId.Length - $digits.Length) + $newDigits
+}
+
 function Get-R18DevJsonRecord {
     <#
     .SYNOPSIS
@@ -50,8 +88,13 @@ function Get-R18DevJsonRecord {
         return
     }
 
+    # The dvd_id endpoint occasionally fuzzy-matches a different number in the
+    # same studio (MIDA-660 -> mida00066); repair the content_id against the
+    # requested id before fetching the full record.
+    $contentId = Resolve-R18DevContentId -RequestedId $Id -CandidateContentId $lookup.content_id
+
     # Step 2: full detail by content_id.
-    $detail = Get-R18DevJsonViaHttp -Uri "$base/combined=$($lookup.content_id)/json" -TimeoutSec $TimeoutSec
+    $detail = Get-R18DevJsonViaHttp -Uri "$base/combined=$contentId/json" -TimeoutSec $TimeoutSec
     if (-not $detail) {
         return
     }
@@ -156,8 +199,13 @@ function Get-R18DevHtmlRecord {
         return
     }
 
+    # The dvd_id endpoint occasionally fuzzy-matches a different number in the
+    # same studio (MIDA-660 -> mida00066); repair the content_id against the
+    # requested id before fetching the full record.
+    $contentId = Resolve-R18DevContentId -RequestedId $Id -CandidateContentId $lookup.content_id
+
     # Step 2: full detail by content_id.
-    $detail = Get-R18DevJsonViaBrowser -Uri "$base/combined=$($lookup.content_id)/json" -NavigationTimeoutMs $NavigationTimeoutMs
+    $detail = Get-R18DevJsonViaBrowser -Uri "$base/combined=$contentId/json" -NavigationTimeoutMs $NavigationTimeoutMs
     if (-not $detail) {
         return
     }

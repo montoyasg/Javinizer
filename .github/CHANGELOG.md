@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.12.6] - 2026-06-04
+
+### Fixed
+
+- **r18.dev resolved the wrong movie for some IDs.** r18.dev's `dvd_id` lookup
+  endpoint fuzzy-matches a different number in the same studio — it drops the
+  trailing zero (`MIDA-660` → `mida00066`, `IPZZ-860` → `ipzz00086`) — and
+  because the combined endpoint reports `dvd_id: null` (we inject the requested
+  id back), the wrong record passed id validation and pulled another title's
+  metadata/actress. `Get-R18DevJsonRecord`/`Get-R18DevHtmlRecord` now repair the
+  `content_id` against the requested number before fetching the full record
+  (recovering the correct title — verified `MIDA-660` → Ibuki Aoi, `IPZZ-860` →
+  Hayashimei), and `Get-R18DevUrl` gained a `content_id`-number backstop that
+  discards any mismatched record on any path (dump/json/html).
+- **Actress names came out as "Is It …" when NFO translation included
+  `actress`.** The translator ran the actress's Japanese name through Google
+  Translate, where given names written in hiragana that double as particles are
+  rendered as English phrases (`初美なのか` → "Is it Hatsumi?", `桃乃木かな` →
+  "Is it Momonogi?"). Actress names are now never machine-translated — they
+  already arrive romanized from the scrapers; translation still applies to
+  description/genre/etc.
+- **jav.guru posters showed "now printing".** The DMM cover URL was rebuilt with
+  the tree hardcoded to `mono/movie/adult`, but digital-only labels (FALENO/FNS,
+  gravure OAE) host the cover under `digital/video` — the wrong tree 302-redirects
+  to a "now printing" placeholder. The cover URL is now probed against both trees
+  (digital first, then mono) and emits whichever serves a real image.
+- **Sorted output: actress/intermediate folders left owned by `root`.** The
+  post-sort `chown` to `PUID:PGID` only covered the leaf movie folder, so the
+  actress (and any intermediate) folders created by the sort stayed `root:root`
+  and were not writable over the share. The chown now walks up from the leaf and
+  fixes every created directory up to — but not including — the destination root.
+  *(Existing folders created before this release need a one-time
+  `chown -R $PUID:$PGID` on the output path.)*
+
 ## [1.12.5] - 2026-06-04
 
 ### Fixed
