@@ -1,4 +1,14 @@
-$script:R18DevBrowserUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+# Cloudflare's posture on r18.dev's JSON API flips periodically over which
+# User-Agents it serves vs. challenges. As of this writing it 403s
+# browser-impersonating UAs (a Chrome string from a non-browser TLS stack reads
+# as a bot) and known library UAs (python-requests, PowerShell), but lets
+# simple command-line tool UAs through. We try these in order and fall through
+# to the next on a Cloudflare block; the first that returns real JSON wins.
+$script:R18DevUserAgents = @(
+    'curl/8.7.1'
+    'Wget/1.21.4'
+    'Javinizer'
+)
 
 function Get-R18DevJsonRecord {
     <#
@@ -6,9 +16,9 @@ function Get-R18DevJsonRecord {
         Live fallback for r18.dev titles newer than the local dump, via the
         plain JSON API.
     .DESCRIPTION
-        r18.dev's JSON detail API is reachable again over ordinary HTTPS as
-        long as a real browser User-Agent is sent (the legacy
-        "Javinizer (+...)" UA gets a Cloudflare-served 404). This does the same
+        r18.dev's JSON detail API is reachable over ordinary HTTPS as long as
+        the request uses a User-Agent Cloudflare currently allows (see
+        $script:R18DevUserAgents). This does the same
         two-step lookup the old scraper did -- dvd_id -> content_id, then
         combined=<content_id> for the full record -- with Invoke-WebRequest, so
         no headless browser is needed. It is the primary live path because it
@@ -60,9 +70,11 @@ function Get-R18DevJsonViaHttp {
     .SYNOPSIS
         Fetch and parse an r18.dev JSON endpoint over plain HTTPS.
     .DESCRIPTION
-        Uses a browser User-Agent so Cloudflare serves the real JSON instead of
-        a 404. Returns $null on any non-200, empty body, or parse failure (a
-        genuine "not in r18.dev's catalog" surfaces as a 404).
+        Tries each UA in $script:R18DevUserAgents until one is served the real
+        JSON, so a Cloudflare 403 against one UA falls through to the next
+        instead of failing the whole lookup. A genuine "not in r18.dev's
+        catalog" surfaces as a 404 -- no UA changes that, so we stop early.
+        Returns $null on any miss/empty body/parse failure.
     #>
     [CmdletBinding()]
     param (
@@ -73,15 +85,27 @@ function Get-R18DevJsonViaHttp {
         [int]$TimeoutSec = 20
     )
 
-    try {
-        $resp = Invoke-WebRequest -Uri $Uri -UserAgent $script:R18DevBrowserUserAgent -Method Get -TimeoutSec $TimeoutSec -Verbose:$false -ErrorAction Stop
-    } catch {
-        # 404 = not in catalog (expected miss); anything else is logged debug.
-        Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] http fetch failed for [$Uri]: $PSItem"
-        return
+    $resp = $null
+    foreach ($ua in $script:R18DevUserAgents) {
+        try {
+            $resp = Invoke-WebRequest -Uri $Uri -UserAgent $ua -Method Get -TimeoutSec $TimeoutSec -Verbose:$false -ErrorAction Stop
+            break
+        } catch {
+            $status = $null
+            try { $status = [int]$PSItem.Exception.Response.StatusCode } catch {}
+
+            if ($status -eq 404) {
+                # Genuine miss: the title is not in r18.dev's catalog.
+                Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] [$Uri] not in r18.dev catalog (404)"
+                return
+            }
+
+            # 403 = Cloudflare challenge for this UA; try the next one.
+            Write-JVLog -Write:$script:JVLogWrite -LogPath $script:JVLogPath -WriteLevel $script:JVLogWriteLevel -Level Debug -Message "[$($MyInvocation.MyCommand.Name)] UA [$ua] blocked (status [$status]) for [$Uri]; trying next UA"
+        }
     }
 
-    if (-not $resp.Content) { return }
+    if (-not $resp -or -not $resp.Content) { return }
 
     try {
         return $resp.Content | ConvertFrom-Json

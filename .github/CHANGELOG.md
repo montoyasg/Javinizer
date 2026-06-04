@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.12.5] - 2026-06-04
+
+### Fixed
+
+- **r18.dev stopped resolving and fell through to jav.guru again — this time
+  with no poster.** Cloudflare flipped its rules on r18.dev's JSON API: the
+  fake-Chrome User-Agent the live-JSON fallback used (added in 1.12.3) now
+  gets a `403`/managed-challenge (a browser UA from a non-browser TLS stack
+  reads as a bot), while simple command-line tool UAs are served the real
+  JSON. Every `Get-R18DevJsonRecord` call threw, so r18.dev resolved nothing
+  and aggregation dropped to jav.guru — which for gravure/specialty labels
+  (OAE-*, REBD-*, etc.) supplies title/actress but no rebuildable cover, so
+  the poster came back blank too. `Get-R18DevJsonViaHttp` now tries an ordered
+  list of accepted UAs (`curl`, `wget`, `Javinizer`), falling through on a
+  Cloudflare `403` and stopping early on a genuine `404`, so the lookup
+  self-heals if Cloudflare flips again. The Playwright path remains the last
+  resort.
+
 ## [1.12.4] - 2026-06-03
 
 ### Fixed
